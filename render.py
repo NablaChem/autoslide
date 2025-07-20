@@ -46,6 +46,11 @@ class MarkdownBeamerParser:
         while i < len(lines):
             line = lines[i].strip()
 
+            # Skip comment lines (starting with //)
+            if line.startswith("//"):
+                i += 1
+                continue
+
             # Empty line - end current block
             if not line:
                 if current_block_lines:

@@ -15,6 +15,7 @@ $$\hat{H} = \hat{H}(Z_i, \mathbf{R}_i, N_e, \sigma)$$
 
 -|-
 
+// comment line which will not be printed
 Implicit
 - foobar
 - snafu
