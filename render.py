@@ -6,6 +6,7 @@ import click
 import subprocess
 import os
 import tempfile
+import sys
 from tqdm import tqdm
 
 
@@ -254,9 +255,9 @@ class MarkdownBeamerParser:
         if not self.pending_figures:
             return
             
-        print(f"Generating {len(self.pending_figures)} figures...")
+        print(f"Generating {len(self.pending_figures)} figures...", file=sys.stderr)
         
-        for figure_info in tqdm(self.pending_figures, desc="Generating figures", unit="figure"):
+        for figure_info in tqdm(self.pending_figures, desc="Generating figures", unit="figure", file=sys.stderr):
             slide_index = figure_info["slide_index"]
 
             # Check if this slide has columns
@@ -404,6 +405,10 @@ plt.rcParams['xtick.labelsize'] = {tick_size}
 plt.rcParams['ytick.labelsize'] = {tick_size}
 plt.rcParams['lines.linewidth'] = {line_width}
 plt.rcParams['lines.markersize'] = {marker_size}
+
+# Set default label positions to axis ends
+plt.rcParams['xaxis.labellocation'] = 'right'
+plt.rcParams['yaxis.labellocation'] = 'top'
 
 # User code
 {user_code}
@@ -1264,7 +1269,7 @@ def main(markdown_file):
     parser = MarkdownBeamerParser(markdown_file)
     slides = parser.parse(markdown_content)
 
-    print(f"Parsed {len(slides)} slides")
+    print(f"Parsed {len(slides)} slides", file=sys.stderr)
     
     generator = BeamerGenerator()
     latex_output = generator.generate_beamer(slides, "My Presentation")

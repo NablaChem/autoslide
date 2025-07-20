@@ -30,7 +30,7 @@ plt.xlabel('Quarter')
 plt.ylabel('Sales ($M)')
 
 plt.plot([0, 1], [0, 1], 'o-', linewidth=2)
-plt.xlabel('Input Layer')
+plt.xlabel('Sales over time')
 plt.ylabel('Output Layer')
 ```
 
