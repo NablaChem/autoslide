@@ -6,6 +6,7 @@ import click
 import subprocess
 import os
 import tempfile
+from tqdm import tqdm
 
 
 class BlockType(Enum):
@@ -250,7 +251,12 @@ class MarkdownBeamerParser:
 
     def _generate_all_pending_figures(self):
         """Generate all pending figures now that we know each slide's complete layout."""
-        for figure_info in self.pending_figures:
+        if not self.pending_figures:
+            return
+            
+        print(f"Generating {len(self.pending_figures)} figures...")
+        
+        for figure_info in tqdm(self.pending_figures, desc="Generating figures", unit="figure"):
             slide_index = figure_info["slide_index"]
 
             # Check if this slide has columns
@@ -1258,6 +1264,8 @@ def main(markdown_file):
     parser = MarkdownBeamerParser(markdown_file)
     slides = parser.parse(markdown_content)
 
+    print(f"Parsed {len(slides)} slides")
+    
     generator = BeamerGenerator()
     latex_output = generator.generate_beamer(slides, "My Presentation")
 

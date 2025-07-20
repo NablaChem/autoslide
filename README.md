@@ -116,6 +116,7 @@ If Python code execution fails, the entire processing stops with a detailed erro
 - Python 3.x
 - Click library (`pip install click`)
 - Matplotlib and NumPy (`pip install matplotlib numpy`)
+- tqdm for progress bars (`pip install tqdm`)
 - LuaLaTeX for compilation
 - Fira Sans font (used in the beamer theme)
 

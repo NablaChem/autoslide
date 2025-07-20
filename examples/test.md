@@ -23,10 +23,29 @@ plt.xlabel('Input Layer')
 plt.ylabel('Output Layer')
 ```
 
-### Plots2
-```plot: scatter
-plt.scatter(np.random.random(10), np.random.random(10))
+### Plots
+```plot: Sales over time
+plt.semilogy([1, 2, 3, 4], [10, 25, 30, 35])
+plt.xlabel('Quarter')
+plt.ylabel('Sales ($M)')
+
+plt.plot([0, 1], [0, 1], 'o-', linewidth=2)
+plt.xlabel('Input Layer')
+plt.ylabel('Output Layer')
 ```
+
+### Plots
+
+```schematic: Sales over time
+plt.plot([1, 2, 3, 4], [10, 25, 30, 35])
+plt.xlabel('Quarter')
+plt.ylabel('Sales ($M)')
+
+plt.plot([0, 1], [0, 1], 'o-', linewidth=2)
+plt.xlabel('Input Layer')
+plt.ylabel('Output Layer')
+```
+
 
 ### Molecular Hamiltonian ###################################################
 
