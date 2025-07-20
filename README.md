@@ -27,6 +27,8 @@ The tool supports a custom Markdown syntax for presentations:
 - `-|-` - Column break for two-column layouts
 - `$$ equation $$` - Math equations with annotations (see detailed syntax below)
 - `:::image.pdf: Caption` - Images with captions
+- ````plot: Caption` - Generate matplotlib plots with axis labels and tick marks
+- ````schematic: Caption` - Generate matplotlib diagrams with axis labels but no tick marks
 - `[1] Footnote text` - Footnotes with numbers
 - `[*] Footnote without number`
 - `// Comment text` - Comments (ignored during parsing)
@@ -71,10 +73,49 @@ $$\hat{H} = \hat{H}(Z_i, \mathbf{R}_i, N_e, \sigma)$$
 - Multiple annotations create a pyramid-like layout for better readability
 - Above and below annotations are automatically spaced to avoid overlap
 
+## Matplotlib Code Blocks
+
+AutoSlide can generate figures on-the-fly using matplotlib. Code blocks are executed in isolated Python environments with automatic imports.
+
+### Syntax
+
+````markdown
+```plot: Optional caption text
+plt.plot([1, 2, 3], [1, 4, 9])
+plt.xlabel('X values')
+plt.ylabel('Y values')
+```
+
+```schematic: Diagram caption
+plt.plot([0, 1], [0, 1], 'o-')
+plt.xlabel('Input')
+plt.ylabel('Output')
+```
+````
+
+### Features
+
+- **Auto-imports**: `numpy as np` and `matplotlib.pyplot as plt` are automatically available
+- **Two types**:
+  - `plot`: Full plots with axis labels and tick marks
+  - `schematic`: Diagrams with axis labels but no tick marks
+- **Isolation**: Each code block runs in a separate Python subprocess
+- **Font matching**: Uses Fira Sans font to match beamer slides
+- **Landscape orientation**: Figures sized for both single and two-column layouts
+- **PDF output**: Generated as `{filename}.figure{N}.pdf` files
+
+### Error Handling
+
+If Python code execution fails, the entire processing stops with a detailed error message showing:
+- Which figure number failed
+- The problematic code
+- Python error output
+
 ## Requirements
 
 - Python 3.x
 - Click library (`pip install click`)
+- Matplotlib and NumPy (`pip install matplotlib numpy`)
 - LuaLaTeX for compilation
 - Fira Sans font (used in the beamer theme)
 

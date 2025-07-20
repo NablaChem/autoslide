@@ -3,6 +3,9 @@ from typing import List, Dict, Tuple
 from dataclasses import dataclass
 from enum import Enum
 import click
+import subprocess
+import os
+import tempfile
 
 
 class BlockType(Enum):
@@ -17,6 +20,8 @@ class BlockType(Enum):
     FOOTLINE = "footline"
     TEXT = "text"
     COLUMN_BREAK = "column_break"
+    PLOT = "plot"
+    SCHEMATIC = "schematic"
 
 
 @dataclass
@@ -31,11 +36,13 @@ class Block:
 
 
 class MarkdownBeamerParser:
-    def __init__(self):
+    def __init__(self, input_filename=None):
         self.blocks = []
         self.footnotes = {}
         self.current_slide_blocks = []
         self.slides = []
+        self.figure_counter = 0
+        self.input_filename = input_filename
 
     def parse(self, markdown_text: str) -> List[List[Block]]:
         """Parse markdown text and return list of slides, each containing blocks."""
@@ -147,6 +154,19 @@ class MarkdownBeamerParser:
                 i += 1
                 continue
 
+            # Check for fenced code blocks (plot/schematic)
+            if line.startswith("```") and ("plot" in line or "schematic" in line):
+                if current_block_lines:
+                    self._process_block_lines(current_block_lines)
+                    current_block_lines = []
+                
+                # Parse fenced code block
+                plot_block, new_i = self._parse_fenced_code_block(lines, i)
+                if plot_block:
+                    self.current_slide_blocks.append(plot_block)
+                i = new_i
+                continue
+
             # Collect lines for current block (preserve original spacing)
             current_block_lines.append(
                 lines[i]
@@ -159,6 +179,170 @@ class MarkdownBeamerParser:
 
         self._finish_current_slide()
         return self.slides
+
+    def _parse_fenced_code_block(self, lines: List[str], start_i: int) -> Tuple[Block, int]:
+        """Parse a fenced code block (plot or schematic) and generate figure."""
+        start_line = lines[start_i].strip()
+        
+        # Parse the opening line: ```plot[:caption] or ```schematic[:caption]
+        if start_line.startswith("```plot"):
+            block_type = BlockType.PLOT
+            caption_part = start_line[7:]  # Remove "```plot"
+        elif start_line.startswith("```schematic"):
+            block_type = BlockType.SCHEMATIC
+            caption_part = start_line[12:]  # Remove "```schematic"
+        else:
+            return None, start_i + 1
+        
+        # Extract caption if present
+        caption = ""
+        if caption_part.startswith(":"):
+            caption = caption_part[1:].strip()
+        
+        # Find the closing ```
+        code_lines = []
+        i = start_i + 1
+        while i < len(lines):
+            if lines[i].strip() == "```":
+                break
+            code_lines.append(lines[i])
+            i += 1
+        
+        if i >= len(lines):
+            raise ValueError(f"Unclosed fenced code block starting at line {start_i + 1}")
+        
+        # Generate the figure
+        code = "\n".join(code_lines)
+        figure_filename = self._generate_figure(code, block_type, caption)
+        
+        # Create image block pointing to generated figure
+        metadata = {"caption": caption, "generated": True}
+        image_block = Block(BlockType.IMAGE, figure_filename, metadata)
+        
+        return image_block, i + 1
+
+    def _generate_figure(self, code: str, block_type: BlockType, caption: str) -> str:
+        """Generate a matplotlib figure from Python code and return filename."""
+        self.figure_counter += 1
+        
+        # Determine base filename
+        if self.input_filename:
+            base_name = os.path.splitext(os.path.basename(self.input_filename))[0]
+        else:
+            base_name = "figure"
+        
+        figure_filename = f"{base_name}.figure{self.figure_counter}.pdf"
+        
+        # Create Python script for subplot execution
+        python_script = self._create_matplotlib_script(code, block_type, figure_filename)
+        
+        # Write script to temporary file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as temp_file:
+            temp_file.write(python_script)
+            temp_script_path = temp_file.name
+        
+        try:
+            # Execute Python script using subprocess
+            result = subprocess.run(
+                ['python', temp_script_path],
+                capture_output=True,
+                text=True,
+                cwd=os.getcwd()
+            )
+            
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"Error generating figure {self.figure_counter} ({block_type.value}):\n"
+                    f"Code:\n{code}\n\n"
+                    f"Error output:\n{result.stderr}"
+                )
+                
+        finally:
+            # Clean up temporary script
+            try:
+                os.unlink(temp_script_path)
+            except OSError:
+                pass
+        
+        return figure_filename
+
+    def _create_matplotlib_script(self, user_code: str, block_type: BlockType, output_filename: str) -> str:
+        """Create complete Python script for matplotlib figure generation."""
+        
+        # Configure schematic vs plot styling
+        if block_type == BlockType.SCHEMATIC:
+            style_config = """
+# Configure for schematic (no tick marks, thick axes in navy blue)
+ncblue = '#0A2D64'  # Navy blue color from beamer theme
+ax = plt.gca()
+ax.spines['left'].set_linewidth(3)
+ax.spines['left'].set_color(ncblue)
+ax.spines['bottom'].set_linewidth(3)
+ax.spines['bottom'].set_color(ncblue)
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+
+# Set axis label colors to navy blue
+ax.xaxis.label.set_color(ncblue)
+ax.yaxis.label.set_color(ncblue)
+
+# Remove all ticks
+ax.set_xticks([])
+ax.set_yticks([])
+"""
+        else:  # PLOT
+            style_config = """
+# Configure for plot (with tick marks, thick axes in navy blue)
+ncblue = '#0A2D64'  # Navy blue color from beamer theme
+ax = plt.gca()
+ax.spines['left'].set_linewidth(3)
+ax.spines['left'].set_color(ncblue)
+ax.spines['bottom'].set_linewidth(3)
+ax.spines['bottom'].set_color(ncblue)
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+
+# Set axis label colors to navy blue
+ax.xaxis.label.set_color(ncblue)
+ax.yaxis.label.set_color(ncblue)
+
+# Keep tick marks for plots with navy blue color
+plt.tick_params(axis='both', which='major', labelsize=18, width=2, length=6, colors=ncblue)
+"""
+        
+        script = f'''
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+
+# Configure matplotlib for 4:3 aspect ratio
+plt.figure(figsize=(8, 6))  # 4:3 aspect ratio, good for both single/two-column
+
+# Set font to match beamer (Fira Sans if available, fallback to sans-serif)
+try:
+    plt.rcParams['font.family'] = ['Fira Sans', 'DejaVu Sans', 'sans-serif']
+except:
+    plt.rcParams['font.family'] = 'sans-serif'
+
+plt.rcParams['font.size'] = 16
+plt.rcParams['axes.labelsize'] = 30  # About 3x larger for presentations
+plt.rcParams['xtick.labelsize'] = 15
+plt.rcParams['ytick.labelsize'] = 15
+plt.rcParams['lines.linewidth'] = 3  # Doubled default line width
+plt.rcParams['lines.markersize'] = 12  # Doubled default marker size
+
+# User code
+{user_code}
+
+{style_config}
+
+# Save figure
+plt.tight_layout()
+plt.savefig('{output_filename}', format='pdf', bbox_inches='tight', dpi=300)
+plt.close()
+'''
+        return script
 
     def _process_block_lines(self, lines: List[str]):
         """Process a block of lines to determine its type and content."""
@@ -986,7 +1170,7 @@ def main(markdown_file):
         markdown_content = f.read()
 
     # Parse and generate
-    parser = MarkdownBeamerParser()
+    parser = MarkdownBeamerParser(markdown_file)
     slides = parser.parse(markdown_content)
 
     generator = BeamerGenerator()
@@ -997,5 +1181,3 @@ def main(markdown_file):
 
 if __name__ == "__main__":
     main()
-
-# %%
