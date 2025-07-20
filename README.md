@@ -16,6 +16,21 @@ python render.py examples/test.md > slides.tex
 latexmk -lualatex slides.tex
 ```
 
+### Progress Output
+
+AutoSlide provides progress feedback during processing:
+
+```bash
+$ python render.py examples/test.md > slides.tex
+Parsed 15 slides
+Generating 8 figures...
+Generating figures: 100%|██████████| 8/8 [00:12<00:00,  1.5s/figure]
+```
+
+- **Progress messages** are sent to stderr (visible in terminal but not in piped output)
+- **LaTeX code** is sent to stdout (clean for file redirection)
+- **Progress bar** shows real-time figure generation with ETA and timing
+
 ## Markdown Syntax
 
 The tool supports a custom Markdown syntax for presentations:
@@ -101,15 +116,37 @@ plt.ylabel('Output')
   - `schematic`: Diagrams with axis labels but no tick marks
 - **Isolation**: Each code block runs in a separate Python subprocess
 - **Font matching**: Uses Fira Sans font to match beamer slides
-- **Landscape orientation**: Figures sized for both single and two-column layouts
+- **Adaptive sizing**: Figures automatically adjust based on slide layout
 - **PDF output**: Generated as `{filename}.figure{N}.pdf` files
+- **Progress tracking**: Visual progress bar during figure generation
+
+### Advanced Figure Features
+
+#### Layout-Aware Sizing
+AutoSlide automatically detects whether figures appear in single or two-column layouts and adjusts accordingly:
+
+- **Two-column slides**: Compact sizing with square aspect ratios to fit within columns
+- **Single-column slides**: Larger widescreen sizing to better fill available space
+
+#### Professional Styling
+All generated figures use presentation-optimized styling:
+
+- **Navy blue axes** matching the beamer theme
+- **Thick axis lines** for better visibility
+- **Large fonts** sized appropriately for presentations
+- **Bold markers and lines** for clear data visualization
+- **Clean appearance** with minimal visual clutter
+- **End-positioned labels** for professional look
+
+#### Smart Generation
+- **Deferred processing**: Figures generated after layout analysis is complete
+- **Automatic naming**: Sequential PDF files based on input filename
+- **Integrated scaling**: LaTeX includes figures with appropriate sizing
+- **Progress feedback**: Real-time status during generation
 
 ### Error Handling
 
-If Python code execution fails, the entire processing stops with a detailed error message showing:
-- Which figure number failed
-- The problematic code
-- Python error output
+If Python code execution fails, processing stops with a detailed error message showing the problematic figure, code, and Python error output.
 
 ## Requirements
 
