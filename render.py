@@ -43,6 +43,7 @@ class MarkdownBeamerParser:
         self.slides = []
         self.figure_counter = 0
         self.input_filename = input_filename
+        self.pending_figures = []  # Store figure info for later generation
 
     def parse(self, markdown_text: str) -> List[List[Block]]:
         """Parse markdown text and return list of slides, each containing blocks."""
@@ -159,7 +160,7 @@ class MarkdownBeamerParser:
                 if current_block_lines:
                     self._process_block_lines(current_block_lines)
                     current_block_lines = []
-                
+
                 # Parse fenced code block
                 plot_block, new_i = self._parse_fenced_code_block(lines, i)
                 if plot_block:
@@ -178,12 +179,18 @@ class MarkdownBeamerParser:
             self._process_block_lines(current_block_lines)
 
         self._finish_current_slide()
+
+        # Generate all pending figures now that we know each slide's layout
+        self._generate_all_pending_figures()
+
         return self.slides
 
-    def _parse_fenced_code_block(self, lines: List[str], start_i: int) -> Tuple[Block, int]:
+    def _parse_fenced_code_block(
+        self, lines: List[str], start_i: int
+    ) -> Tuple[Block, int]:
         """Parse a fenced code block (plot or schematic) and generate figure."""
         start_line = lines[start_i].strip()
-        
+
         # Parse the opening line: ```plot[:caption] or ```schematic[:caption]
         if start_line.startswith("```plot"):
             block_type = BlockType.PLOT
@@ -193,12 +200,12 @@ class MarkdownBeamerParser:
             caption_part = start_line[12:]  # Remove "```schematic"
         else:
             return None, start_i + 1
-        
+
         # Extract caption if present
         caption = ""
         if caption_part.startswith(":"):
             caption = caption_part[1:].strip()
-        
+
         # Find the closing ```
         code_lines = []
         i = start_i + 1
@@ -207,77 +214,137 @@ class MarkdownBeamerParser:
                 break
             code_lines.append(lines[i])
             i += 1
-        
-        if i >= len(lines):
-            raise ValueError(f"Unclosed fenced code block starting at line {start_i + 1}")
-        
-        # Generate the figure
-        code = "\n".join(code_lines)
-        figure_filename = self._generate_figure(code, block_type, caption)
-        
-        # Create image block pointing to generated figure
-        metadata = {"caption": caption, "generated": True}
-        image_block = Block(BlockType.IMAGE, figure_filename, metadata)
-        
-        return image_block, i + 1
 
-    def _generate_figure(self, code: str, block_type: BlockType, caption: str) -> str:
-        """Generate a matplotlib figure from Python code and return filename."""
+        if i >= len(lines):
+            raise ValueError(
+                f"Unclosed fenced code block starting at line {start_i + 1}"
+            )
+
+        # Store figure info for later generation (after we know full slide layout)
+        code = "\n".join(code_lines)
         self.figure_counter += 1
-        
+
         # Determine base filename
         if self.input_filename:
             base_name = os.path.splitext(os.path.basename(self.input_filename))[0]
         else:
             base_name = "figure"
-        
+
         figure_filename = f"{base_name}.figure{self.figure_counter}.pdf"
-        
+
+        # Store figure info for later generation
+        figure_info = {
+            "code": code,
+            "block_type": block_type,
+            "caption": caption,
+            "filename": figure_filename,
+            "slide_index": len(self.slides),  # Current slide index
+        }
+        self.pending_figures.append(figure_info)
+
+        # Create image block pointing to future generated figure
+        metadata = {"caption": caption, "generated": True}
+        image_block = Block(BlockType.IMAGE, figure_filename, metadata)
+
+        return image_block, i + 1
+
+    def _generate_all_pending_figures(self):
+        """Generate all pending figures now that we know each slide's complete layout."""
+        for figure_info in self.pending_figures:
+            slide_index = figure_info["slide_index"]
+
+            # Check if this slide has columns
+            if slide_index < len(self.slides):
+                slide_blocks = self.slides[slide_index]
+                has_columns = any(
+                    block.type == BlockType.COLUMN_BREAK for block in slide_blocks
+                )
+            else:
+                # Figure is on current slide being built
+                has_columns = any(
+                    block.type == BlockType.COLUMN_BREAK
+                    for block in self.current_slide_blocks
+                )
+
+            # Generate the figure with correct layout parameters
+            self._generate_figure_file(
+                figure_info["code"],
+                figure_info["block_type"],
+                figure_info["filename"],
+                has_columns,
+            )
+
+    def _generate_figure_file(
+        self, code: str, block_type: BlockType, filename: str, has_columns: bool = False
+    ):
+        """Generate a single figure file with the specified parameters."""
         # Create Python script for subplot execution
-        python_script = self._create_matplotlib_script(code, block_type, figure_filename)
-        
+        python_script = self._create_matplotlib_script(
+            code, block_type, filename, has_columns
+        )
+
         # Write script to temporary file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as temp_file:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".py", delete=False
+        ) as temp_file:
             temp_file.write(python_script)
             temp_script_path = temp_file.name
-        
+
         try:
             # Execute Python script using subprocess
             result = subprocess.run(
-                ['python', temp_script_path],
+                ["python", temp_script_path],
                 capture_output=True,
                 text=True,
-                cwd=os.getcwd()
+                cwd=os.getcwd(),
             )
-            
+
             if result.returncode != 0:
                 raise RuntimeError(
-                    f"Error generating figure {self.figure_counter} ({block_type.value}):\n"
+                    f"Error generating figure {filename} ({block_type.value}):\n"
                     f"Code:\n{code}\n\n"
                     f"Error output:\n{result.stderr}"
                 )
-                
+
         finally:
             # Clean up temporary script
             try:
                 os.unlink(temp_script_path)
             except OSError:
                 pass
-        
-        return figure_filename
 
-    def _create_matplotlib_script(self, user_code: str, block_type: BlockType, output_filename: str) -> str:
+    def _create_matplotlib_script(
+        self,
+        user_code: str,
+        block_type: BlockType,
+        output_filename: str,
+        has_columns: bool = False,
+    ) -> str:
         """Create complete Python script for matplotlib figure generation."""
-        
+
+        # Determine figure parameters based on layout FIRST
+        if has_columns:
+            # Two-column layout: 4:3 aspect ratio with standard sizes
+            figsize = "(8, 6)"
+        else:
+            # Single-column layout: 16:9 aspect ratio with 30% smaller sizes
+            figsize = "(10, 5.625)"  # 16:9 aspect ratio
+
+        font_size = "16"
+        label_size = "25"
+        tick_size = "18"
+        line_width = "2"
+        marker_size = "12"
+        spine_width = "3"
         # Configure schematic vs plot styling
         if block_type == BlockType.SCHEMATIC:
-            style_config = """
+            style_config = f"""
 # Configure for schematic (no tick marks, thick axes in navy blue)
 ncblue = '#0A2D64'  # Navy blue color from beamer theme
 ax = plt.gca()
-ax.spines['left'].set_linewidth(3)
+ax.spines['left'].set_linewidth({spine_width})
 ax.spines['left'].set_color(ncblue)
-ax.spines['bottom'].set_linewidth(3)
+ax.spines['bottom'].set_linewidth({spine_width})
 ax.spines['bottom'].set_color(ncblue)
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
@@ -291,13 +358,13 @@ ax.set_xticks([])
 ax.set_yticks([])
 """
         else:  # PLOT
-            style_config = """
+            style_config = f"""
 # Configure for plot (with tick marks, thick axes in navy blue)
 ncblue = '#0A2D64'  # Navy blue color from beamer theme
 ax = plt.gca()
-ax.spines['left'].set_linewidth(3)
+ax.spines['left'].set_linewidth({spine_width})
 ax.spines['left'].set_color(ncblue)
-ax.spines['bottom'].set_linewidth(3)
+ax.spines['bottom'].set_linewidth({spine_width})
 ax.spines['bottom'].set_color(ncblue)
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
@@ -306,18 +373,18 @@ ax.spines['right'].set_visible(False)
 ax.xaxis.label.set_color(ncblue)
 ax.yaxis.label.set_color(ncblue)
 
-# Keep tick marks for plots with navy blue color
-plt.tick_params(axis='both', which='major', labelsize=18, width=2, length=6, colors=ncblue)
+# Keep tick marks for plots with navy blue color  
+plt.tick_params(axis='both', which='major', width=2, length=6, colors=ncblue)
 """
-        
-        script = f'''
+
+        script = f"""
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 
-# Configure matplotlib for 4:3 aspect ratio
-plt.figure(figsize=(8, 6))  # 4:3 aspect ratio, good for both single/two-column
+# Configure matplotlib with layout-specific parameters
+plt.figure(figsize={figsize})
 
 # Set font to match beamer (Fira Sans if available, fallback to sans-serif)
 try:
@@ -325,12 +392,12 @@ try:
 except:
     plt.rcParams['font.family'] = 'sans-serif'
 
-plt.rcParams['font.size'] = 16
-plt.rcParams['axes.labelsize'] = 30  # About 3x larger for presentations
-plt.rcParams['xtick.labelsize'] = 15
-plt.rcParams['ytick.labelsize'] = 15
-plt.rcParams['lines.linewidth'] = 3  # Doubled default line width
-plt.rcParams['lines.markersize'] = 12  # Doubled default marker size
+plt.rcParams['font.size'] = {font_size}
+plt.rcParams['axes.labelsize'] = {label_size}
+plt.rcParams['xtick.labelsize'] = {tick_size}
+plt.rcParams['ytick.labelsize'] = {tick_size}
+plt.rcParams['lines.linewidth'] = {line_width}
+plt.rcParams['lines.markersize'] = {marker_size}
 
 # User code
 {user_code}
@@ -341,7 +408,7 @@ plt.rcParams['lines.markersize'] = 12  # Doubled default marker size
 plt.tight_layout()
 plt.savefig('{output_filename}', format='pdf', bbox_inches='tight', dpi=300)
 plt.close()
-'''
+"""
         return script
 
     def _process_block_lines(self, lines: List[str]):
