@@ -327,7 +327,7 @@ class MarkdownBeamerParser:
             # Two-column layout: 4:3 aspect ratio with standard sizes
             figsize = "(8, 6)"
         else:
-            # Single-column layout: 16:9 aspect ratio with 30% smaller sizes
+            # Single-column layout: 16:9 aspect ratio
             figsize = "(10, 5.625)"  # 16:9 aspect ratio
 
         font_size = "16"
@@ -582,7 +582,11 @@ class BeamerGenerator:
             return True
 
     def _process_slide_blocks(
-        self, blocks: List[Block], slide_parts: List[str], in_columns: bool
+        self,
+        blocks: List[Block],
+        slide_parts: List[str],
+        in_columns: bool,
+        has_columns: bool = False,
     ) -> bool:
         """Process blocks for slide content."""
         for block in blocks:
@@ -603,7 +607,7 @@ class BeamerGenerator:
                     slide_parts.append("\\begin{column}[t]{0.5\\textwidth}")
                     in_columns = True
             else:
-                slide_parts.append(self._format_block(block))
+                slide_parts.append(self._format_block(block, has_columns))
         return in_columns
 
     def _finalize_slide(self, slide_parts: List[str], footnotes: List[Block]):
@@ -677,7 +681,9 @@ class BeamerGenerator:
 
         # Setup columns and process blocks
         in_columns = self._setup_slide_columns(slide_parts, has_columns)
-        in_columns = self._process_slide_blocks(blocks, slide_parts, in_columns)
+        in_columns = self._process_slide_blocks(
+            blocks, slide_parts, in_columns, has_columns
+        )
 
         # Finalize slide
         self._finalize_slide(slide_parts, footnotes)
@@ -728,7 +734,9 @@ class BeamerGenerator:
 
         # Setup columns and process blocks
         in_columns = self._setup_slide_columns(slide_parts, has_columns)
-        in_columns = self._process_slide_blocks(blocks, slide_parts, in_columns)
+        in_columns = self._process_slide_blocks(
+            blocks, slide_parts, in_columns, has_columns
+        )
 
         # Finalize slide
         self._finalize_slide(slide_parts, footnotes)
@@ -738,7 +746,7 @@ class BeamerGenerator:
 
         return "\n".join(slide_parts)
 
-    def _format_block(self, block: Block) -> str:
+    def _format_block(self, block: Block, has_columns: bool = False) -> str:
         """Format a single block based on its type."""
         if block.type == BlockType.EQUATION:
             return block.content
@@ -749,7 +757,7 @@ class BeamerGenerator:
         elif block.type == BlockType.LIST:
             return self._format_list(block.content)
         elif block.type == BlockType.IMAGE:
-            return self._format_image(block)
+            return self._format_image(block, has_columns)
         elif block.type == BlockType.FOOTNOTE:
             return f"\\footnote[{block.metadata['number']}]{{{block.content}}}"
         elif block.type == BlockType.TEXT:
@@ -1176,13 +1184,23 @@ class BeamerGenerator:
         list_lines.append("\\vspace{0.5em}")
         return "\n".join(list_lines)
 
-    def _format_image(self, block: Block) -> str:
+    def _format_image(self, block: Block, has_columns: bool = False) -> str:
         """Format image block with auto-scaling and plain grey caption."""
         image_file = block.content
         caption = block.metadata.get("caption", "")
 
+        # Use different scaling for single-column vs two-column layouts
+        if has_columns:
+            # Two-column layout: use linewidth (fits within column)
+            width_setting = "width=\\linewidth"
+            height_setting = "height=0.6\\textheight"
+        else:
+            # Single-column layout: use larger scaling to fill more space
+            width_setting = "width=1.5\\linewidth"
+            height_setting = "height=0.7\\textheight"
+
         return f"""\\begin{{center}}
-\\includegraphics[width=\\linewidth,height=0.6\\textheight,keepaspectratio]{{{image_file}}}
+\\includegraphics[{width_setting},{height_setting},keepaspectratio]{{{image_file}}}
 \\end{{center}}
 \\vspace{{-1em}}
 \\textcolor{{gray}}{{{caption}}}"""
