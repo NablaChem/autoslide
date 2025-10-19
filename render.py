@@ -147,7 +147,7 @@ class MarkdownBeamerParser:
                     self._process_block_lines(current_block_lines)
                     current_block_lines = []
                 # Parse image syntax: "::: filename.svg: Caption"
-                image_match = re.match(r"^::: ([^:]+): (.+)$", line)
+                image_match = re.match(r"^::: ([^:]+):(.*)$", line)
                 if image_match:
                     image_file = image_match.group(1).strip()
                     caption = image_match.group(2).strip()
@@ -254,10 +254,15 @@ class MarkdownBeamerParser:
         """Generate all pending figures now that we know each slide's complete layout."""
         if not self.pending_figures:
             return
-            
+
         print(f"Generating {len(self.pending_figures)} figures...", file=sys.stderr)
-        
-        for figure_info in tqdm(self.pending_figures, desc="Generating figures", unit="figure", file=sys.stderr):
+
+        for figure_info in tqdm(
+            self.pending_figures,
+            desc="Generating figures",
+            unit="figure",
+            file=sys.stderr,
+        ):
             slide_index = figure_info["slide_index"]
 
             # Check if this slide has columns
@@ -572,7 +577,8 @@ class BeamerGenerator:
 \usepackage{amsmath}
 \usepackage{tikz}
 \usetikzlibrary{tikzmark,calc,positioning}
-
+\setlength{\parskip}{0.5em}
+\setlength{\parindent}{0pt}
 
 \begin{document}"""
 
@@ -1200,15 +1206,28 @@ class BeamerGenerator:
         image_file = block.content
         caption = block.metadata.get("caption", "")
 
-        # Use different scaling for single-column vs two-column layouts
+        # optional scaling of image via filename pattern imagefile.ext*scale
+        parts = image_file.split("*")
+        scale_factor = 1.0
+        if len(parts) == 2:
+            image_file = parts[0]
+            scale_factor = float(parts[1])
+
+        # Use different base scaling for single-column vs two-column layouts
         if has_columns:
             # Two-column layout: use linewidth (fits within column)
+            width_limit = 1.0
+            height_limit = 0.6
             width_setting = "width=\\linewidth"
             height_setting = "height=0.6\\textheight"
         else:
             # Single-column layout: use larger scaling to fill more space
-            width_setting = "width=1.5\\linewidth"
-            height_setting = "height=0.7\\textheight"
+            width_limit = 1.5
+            height_limit = 0.7
+
+        # calculate final scaling
+        width_setting = f"width={width_limit * scale_factor}\\linewidth"
+        height_setting = f"height={height_limit * scale_factor}\\textheight"
 
         return f"""\\begin{{center}}
 \\includegraphics[{width_setting},{height_setting},keepaspectratio]{{{image_file}}}
@@ -1270,7 +1289,7 @@ def main(markdown_file):
     slides = parser.parse(markdown_content)
 
     print(f"Parsed {len(slides)} slides", file=sys.stderr)
-    
+
     generator = BeamerGenerator()
     latex_output = generator.generate_beamer(slides, "My Presentation")
 
