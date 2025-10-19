@@ -577,7 +577,7 @@ class BeamerGenerator:
 \usepackage{amsmath}
 \usepackage{tikz}
 \usetikzlibrary{tikzmark,calc,positioning}
-\setlength{\parskip}{0.5em}
+\setlength{\parskip}{1.5em}
 \setlength{\parindent}{0pt}
 
 \begin{document}"""
@@ -1239,7 +1239,8 @@ class BeamerGenerator:
         """Format text content."""
         # Handle footnote references
         content = re.sub(r"\[\^(\d+)\]", r"\\footnotemark[\1]", content)
-        return content
+        # Always add empty line after text blocks to preserve paragraph spacing
+        return content + "\n"
 
     def _format_fake_footnotes(self, footnotes: List[Block]) -> str:
         """Format fake footnotes with starred footnotes first, then numbered ones with pipe separation."""
