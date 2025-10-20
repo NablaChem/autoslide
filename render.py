@@ -1141,6 +1141,8 @@ class BeamerGenerator:
 
         if first_line and not first_line.startswith("-"):
             # First line is a heading
+            # Handle italic formatting in heading
+            first_line = re.sub(r'\*([^*]+)\*', r'\\textit{\1}', first_line)
             list_lines.append(f"\\textbf{{\\textcolor{{navyblue}}{{{first_line}}}}}")
             start_idx = 1
 
@@ -1163,6 +1165,8 @@ class BeamerGenerator:
                     r"\\footnotemark[\1]",
                     item_text,
                 )
+                # Handle italic formatting: *text* -> \textit{text}
+                item_text = re.sub(r'\*([^*]+)\*', r'\\textit{\1}', item_text)
                 list_lines.append(f"\\item {item_text}")
 
                 # Check if next lines are sub-items (indented dashes)
@@ -1181,6 +1185,8 @@ class BeamerGenerator:
                             r"\\footnotemark[\1]",
                             sub_item_text,
                         )
+                        # Handle italic formatting: *text* -> \textit{text}
+                        sub_item_text = re.sub(r'\*([^*]+)\*', r'\\textit{\1}', sub_item_text)
                         sub_items.append(sub_item_text)
                         j += 1
                     else:
@@ -1239,6 +1245,8 @@ class BeamerGenerator:
         """Format text content."""
         # Handle footnote references
         content = re.sub(r"\[\^(\d+)\]", r"\\footnotemark[\1]", content)
+        # Handle italic formatting: *text* -> \textit{text}
+        content = re.sub(r"\*([^*]+)\*", r"\\textit{\1}", content)
         # Always add empty line after text blocks to preserve paragraph spacing
         return content + "\n"
 
