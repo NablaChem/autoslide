@@ -505,11 +505,11 @@ plt.close()
             line = line.strip()
             if i == 0:
                 # First line should have pipes
-                if not ('|' in line):
+                if not ("|" in line):
                     continue
-            elif re.match(r'^\s*\|?[\s\-\|:]+\|?\s*$', line):
+            elif re.match(r"^\s*\|?[\s\-\|:]+\|?\s*$", line):
                 # This is a separator line, check if previous line had pipes
-                if i > 0 and '|' in lines[i-1]:
+                if i > 0 and "|" in lines[i - 1]:
                     return True
         return False
 
@@ -662,7 +662,9 @@ class BeamerGenerator:
         # Add fake footnotes if any exist
         if footnotes:
             slide_parts.append(
-                "\\hspace*{-2em}" + self._format_fake_footnotes(footnotes)
+                "\\hspace*{-2em}\\parbox[t]{0.95\\paperwidth}{"
+                + self._format_fake_footnotes(footnotes)
+                + "}"
             )
 
         # End minipage and frame
@@ -1133,18 +1135,23 @@ class BeamerGenerator:
 
         for i, line in enumerate(lines):
             # Skip separator line (|---|---|)
-            if re.match(r'^\s*\|?[\s\-\|:]+\|?\s*$', line):
+            if re.match(r"^\s*\|?[\s\-\|:]+\|?\s*$", line):
                 separator_found = True
                 continue
 
             # Parse table row
-            if '|' in line:
+            if "|" in line:
                 # Remove leading/trailing pipes and split
-                cells = [cell.strip() for cell in line.strip('|').split('|')]
+                cells = [cell.strip() for cell in line.strip("|").split("|")]
                 # Apply italic formatting to each cell
-                cells = [re.sub(r'\*([^*]+)\*', r'\\textit{\1}', cell) for cell in cells]
+                cells = [
+                    re.sub(r"\*([^*]+)\*", r"\\textit{\1}", cell) for cell in cells
+                ]
                 # Handle footnote references in cells
-                cells = [re.sub(r'\[\^(\d+)\]', r'\\footnotemark[\1]', cell) for cell in cells]
+                cells = [
+                    re.sub(r"\[\^(\d+)\]", r"\\footnotemark[\1]", cell)
+                    for cell in cells
+                ]
                 table_rows.append(cells)
 
         if not table_rows:
@@ -1159,22 +1166,30 @@ class BeamerGenerator:
 
         for i, row in enumerate(table_rows):
             # Pad row to max columns
-            padded_row = row + [''] * (max_cols - len(row))
+            padded_row = row + [""] * (max_cols - len(row))
 
             if i == 0:
                 # Add blue line above header matching header background color
-                latex_lines.append("\\arrayrulecolor{ncblue!20}\\specialrule{1.33pt}{0pt}{0pt}\\arrayrulecolor{black}")
+                latex_lines.append(
+                    "\\arrayrulecolor{ncblue!20}\\specialrule{1.33pt}{0pt}{0pt}\\arrayrulecolor{black}"
+                )
                 # Header row - blue background and bold text
                 formatted_cells = [f"\\textbf{{{cell}}}" for cell in padded_row]
-                latex_lines.append("\\rowcolor{ncblue!20}" + " & ".join(formatted_cells) + " \\\\")
+                latex_lines.append(
+                    "\\rowcolor{ncblue!20}" + " & ".join(formatted_cells) + " \\\\"
+                )
                 # Add thinner blue line under header
-                latex_lines.append("\\arrayrulecolor{ncblue}\\specialrule{1.33pt}{0pt}{0pt}\\arrayrulecolor{black}")
+                latex_lines.append(
+                    "\\arrayrulecolor{ncblue}\\specialrule{1.33pt}{0pt}{0pt}\\arrayrulecolor{black}"
+                )
             else:
                 # Data rows with alternating shading pattern (2 unshaded, 2 shaded)
                 # Pattern: rows 1,2 = unshaded, rows 3,4 = shaded, rows 5,6 = unshaded, etc.
                 cycle_position = (i - 1) % 4  # 0,1,2,3 for rows 1,2,3,4
                 if cycle_position >= 2:  # rows 3,4 in each cycle get light blue shading
-                    latex_lines.append("\\rowcolor{ncblue!10}" + " & ".join(padded_row) + " \\\\")
+                    latex_lines.append(
+                        "\\rowcolor{ncblue!10}" + " & ".join(padded_row) + " \\\\"
+                    )
                 else:
                     latex_lines.append(" & ".join(padded_row) + " \\\\")
 
@@ -1193,7 +1208,7 @@ class BeamerGenerator:
         if first_line and not first_line.startswith("-"):
             # First line is a heading
             # Handle italic formatting in heading
-            first_line = re.sub(r'\*([^*]+)\*', r'\\textit{\1}', first_line)
+            first_line = re.sub(r"\*([^*]+)\*", r"\\textit{\1}", first_line)
             list_lines.append(f"\\textbf{{\\textcolor{{navyblue}}{{{first_line}}}}}")
             start_idx = 1
 
@@ -1217,7 +1232,7 @@ class BeamerGenerator:
                     item_text,
                 )
                 # Handle italic formatting: *text* -> \textit{text}
-                item_text = re.sub(r'\*([^*]+)\*', r'\\textit{\1}', item_text)
+                item_text = re.sub(r"\*([^*]+)\*", r"\\textit{\1}", item_text)
                 list_lines.append(f"\\item {item_text}")
 
                 # Check if next lines are sub-items (indented dashes)
@@ -1237,7 +1252,9 @@ class BeamerGenerator:
                             sub_item_text,
                         )
                         # Handle italic formatting: *text* -> \textit{text}
-                        sub_item_text = re.sub(r'\*([^*]+)\*', r'\\textit{\1}', sub_item_text)
+                        sub_item_text = re.sub(
+                            r"\*([^*]+)\*", r"\\textit{\1}", sub_item_text
+                        )
                         sub_items.append(sub_item_text)
                         j += 1
                     else:
@@ -1323,13 +1340,17 @@ class BeamerGenerator:
 
         # Add starred footnotes first (no markers, just the content in gray)
         for footnote in starred_footnotes:
-            footnote_parts.append(f"\\textcolor{{gray}}{{{footnote.content}}}")
+            # Apply italic formatting to footnote content
+            content = re.sub(r"\*([^*]+)\*", r"\\textit{\1}", footnote.content)
+            footnote_parts.append(f"\\textcolor{{gray}}{{{content}}}")
 
         # Add numbered footnotes with orange markers and pipes, gray text
         for footnote in numbered_footnotes:
             number = footnote.metadata.get("number", "")
+            # Apply italic formatting to footnote content
+            content = re.sub(r"\*([^*]+)\*", r"\\textit{\1}", footnote.content)
             footnote_parts.append(
-                f"\\textcolor{{orange}}{{{number}}} \\textcolor{{orange}}{{|}} \\textcolor{{gray}}{{{footnote.content}}}"
+                f"\\textcolor{{orange}}{{{number}}}\\textcolor{{orange}}{{|}}~\\textcolor{{gray}}{{{content}}}"
             )
 
         return " ".join(footnote_parts)
