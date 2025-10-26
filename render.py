@@ -573,9 +573,9 @@ class BeamerGenerator:
 %\setbeamertemplate{frametitle}[default][left]
 
 \setbeamertemplate{navigation symbols}{}
-\setbeamertemplate{itemize item}{\textendash}
-\setbeamertemplate{itemize subitem}{\textendash}
-\setbeamertemplate{itemize subsubitem}{\textendash}
+\setbeamertemplate{itemize item}{\textcolor{navyblue}{\textendash}}
+\setbeamertemplate{itemize subitem}{\textcolor{navyblue}{\textendash}}
+\setbeamertemplate{itemize subsubitem}{\textcolor{navyblue}{\textendash}}
 \setlength{\leftmargini}{1em}
 \setlength{\leftmarginii}{2em}
 \setlength{\leftmarginiii}{3em}
