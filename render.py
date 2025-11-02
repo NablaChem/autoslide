@@ -593,6 +593,11 @@ class BeamerGenerator:
   \tikzset{tikzmark prefix=frame\insertframenumber}
 }
 \usepackage{amsmath}
+% Set equation numbers to orange color with orange parentheses
+\renewcommand{\theequation}{\textcolor{ncorange}{\arabic{equation}}}
+\makeatletter
+\renewcommand{\tagform@}[1]{\maketag@@@{\textcolor{ncorange}{(#1)}}}
+\makeatother
 \usepackage{tikz}
 \usetikzlibrary{tikzmark,calc,positioning}
 \usepackage{colortbl}
@@ -600,7 +605,10 @@ class BeamerGenerator:
 \usepackage{booktabs}
 \setlength{\parskip}{1.5em}
 \setlength{\parindent}{0pt}
-
+\setlength{\abovedisplayskip}{0pt}
+\setlength{\belowdisplayskip}{0pt}
+\setlength{\abovedisplayshortskip}{0pt}
+\setlength{\belowdisplayshortskip}{0pt}
 \begin{document}"""
 
     def _generate_footer(self) -> str:
@@ -789,7 +797,7 @@ class BeamerGenerator:
     def _format_block(self, block: Block, has_columns: bool = False) -> str:
         """Format a single block based on its type."""
         if block.type == BlockType.EQUATION:
-            return block.content
+            return self._format_equation(block.content)
         elif block.type == BlockType.ANNOTATED_EQUATION:
             return self._format_annotated_equation(block)
         elif block.type == BlockType.TABLE:
@@ -804,6 +812,16 @@ class BeamerGenerator:
             return self._format_text(block.content)
         else:
             return block.content
+
+    def _format_equation(self, content: str) -> str:
+        """Format equation content using align environment instead of $$..$$."""
+        # Remove the $$ markers from beginning and end
+        equation_content = content.strip()
+        if equation_content.startswith("$$") and equation_content.endswith("$$"):
+            equation_content = equation_content[2:-2].strip()
+
+        # Use align environment with reduced spacing to match $$...$$ spacing
+        return f"\\begin{{align}}\\abovedisplayskip=0pt\\belowdisplayskip=0pt{equation_content}\\end{{align}}"
 
     def _format_annotated_equation(self, block: Block) -> str:
         """Format an annotated equation with tikzmarknode annotations."""
@@ -858,28 +876,23 @@ class BeamerGenerator:
             above_space = space_requirements["above"]
             below_space = space_requirements["below"]
 
-            # Generate the complete LaTeX output with proper spacing
+            # Generate the complete LaTeX output
             latex_parts = []
 
-            # Add space above for annotations
-            if above_space > 0:
-                latex_parts.append(f"\\vspace{{{above_space}em}}")
-
             # Add the equation
-            latex_parts.append(f"$${annotated_equation}$$")
+            latex_parts.append(
+                f"\\begin{{align}}\\abovedisplayskip=0pt\\belowdisplayskip=0pt{annotated_equation}\\end{{align}}"
+            )
             latex_parts.append("")
 
             # Add the tikzpicture
             latex_parts.extend(tikz_code)
-
-            # Add space below for annotations
-            latex_parts.append("\n")
-            if below_space > 0:
-                latex_parts.append(f"\\vspace{{{below_space}em}}")
         else:
             # No annotations, just the equation
             latex_parts = []
-            latex_parts.append(f"$${annotated_equation}$$")
+            latex_parts.append(
+                f"\\begin{{align}}\\abovedisplayskip=0pt\\belowdisplayskip=0pt{annotated_equation}\\end{{align}}"
+            )
 
         return "\n".join(latex_parts)
 
@@ -1082,7 +1095,16 @@ class BeamerGenerator:
 
         latex_parts.append("\\begin{columns}")
         latex_parts.append("\\begin{column}{0.6\\textwidth}")
-        latex_parts.append(equation)
+
+        # Convert equation to use align environment
+        equation_content = equation.strip()
+        if equation_content.startswith("$$") and equation_content.endswith("$$"):
+            equation_content = equation_content[2:-2].strip()
+            latex_parts.append(
+                f"\\begin{{align}}\\abovedisplayskip=0pt\\belowdisplayskip=0pt{equation_content}\\end{{align}}"
+            )
+        else:
+            latex_parts.append(equation)
         latex_parts.append("\\end{column}")
         latex_parts.append("\\begin{column}{0.4\\textwidth}")
         latex_parts.append("\\footnotesize")
@@ -1375,7 +1397,9 @@ class BeamerGenerator:
         # Get the directory where render.py is located
         render_dir = os.path.dirname(os.path.abspath(__file__))
         # Construct the source path relative to render.py
-        source_icon_path = os.path.join(render_dir, "icons", "light", f"{icon_name}-light.svg")
+        source_icon_path = os.path.join(
+            render_dir, "icons", "light", f"{icon_name}-light.svg"
+        )
 
         # Check if the source file exists
         if not os.path.exists(source_icon_path):
@@ -1387,12 +1411,19 @@ class BeamerGenerator:
         local_pdf_path = os.path.join(os.getcwd(), local_pdf_filename)
 
         # Convert SVG to PDF if it doesn't exist or source is newer
-        if not os.path.exists(local_pdf_path) or self._source_is_newer(source_icon_path, local_pdf_path):
+        if not os.path.exists(local_pdf_path) or self._source_is_newer(
+            source_icon_path, local_pdf_path
+        ):
             try:
-                self._convert_svg_to_pdf(source_icon_path, local_pdf_path, "#0A2D64")  # ncblue color
+                self._convert_svg_to_pdf(
+                    source_icon_path, local_pdf_path, "#0A2D64"
+                )  # ncblue color
             except Exception as e:
                 # If conversion fails, fall back to original text
-                print(f"Warning: Could not convert icon {icon_name} to PDF: {e}", file=sys.stderr)
+                print(
+                    f"Warning: Could not convert icon {icon_name} to PDF: {e}",
+                    file=sys.stderr,
+                )
                 return f":{icon_name}:"
 
         # Generate TikZ code for icon with circular background using local PDF
@@ -1406,6 +1437,7 @@ class BeamerGenerator:
     def _source_is_newer(self, source_file: str, target_file: str) -> bool:
         """Check if source file is newer than target file."""
         import os
+
         try:
             source_stat = os.stat(source_file)
             target_stat = os.stat(target_file)
@@ -1420,14 +1452,14 @@ class BeamerGenerator:
             import xml.etree.ElementTree as ET
 
             # Read and modify SVG to apply color
-            with open(svg_path, 'r', encoding='utf-8') as f:
+            with open(svg_path, "r", encoding="utf-8") as f:
                 svg_content = f.read()
 
             # Parse SVG and apply color
             svg_content = self._apply_color_to_svg(svg_content, color)
 
             # Convert to PDF
-            cairosvg.svg2pdf(bytestring=svg_content.encode('utf-8'), write_to=pdf_path)
+            cairosvg.svg2pdf(bytestring=svg_content.encode("utf-8"), write_to=pdf_path)
 
         except ImportError:
             # Fallback to reportlab if cairosvg not available
@@ -1438,11 +1470,15 @@ class BeamerGenerator:
         import re
 
         # Replace currentColor with the specified color
-        svg_content = svg_content.replace('currentColor', color)
+        svg_content = svg_content.replace("currentColor", color)
 
         # Replace existing stroke colors (but not "none")
-        svg_content = re.sub(r'stroke="(?!none)[^"]*"', f'stroke="{color}"', svg_content)
-        svg_content = re.sub(r"stroke='(?!none)[^']*'", f"stroke='{color}'", svg_content)
+        svg_content = re.sub(
+            r'stroke="(?!none)[^"]*"', f'stroke="{color}"', svg_content
+        )
+        svg_content = re.sub(
+            r"stroke='(?!none)[^']*'", f"stroke='{color}'", svg_content
+        )
 
         # Replace existing fill attributes (except "none")
         svg_content = re.sub(r'fill="(?!none)[^"]*"', f'fill="{color}"', svg_content)
@@ -1450,7 +1486,9 @@ class BeamerGenerator:
 
         return svg_content
 
-    def _convert_svg_to_pdf_reportlab(self, svg_path: str, pdf_path: str, color: str) -> None:
+    def _convert_svg_to_pdf_reportlab(
+        self, svg_path: str, pdf_path: str, color: str
+    ) -> None:
         """Fallback SVG to PDF conversion using reportlab."""
         try:
             from reportlab.graphics import renderPDF
@@ -1462,7 +1500,9 @@ class BeamerGenerator:
             raise ImportError("cairosvg is required for SVG to PDF conversion")
 
         except ImportError:
-            raise ImportError("Either cairosvg or reportlab+svglib is required for SVG to PDF conversion")
+            raise ImportError(
+                "Either cairosvg or reportlab+svglib is required for SVG to PDF conversion"
+            )
 
 
 @click.command()
