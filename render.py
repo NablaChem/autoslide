@@ -61,6 +61,22 @@ class MarkdownBeamerParser:
                 i += 1
                 continue
 
+            # Handle include lines (starting with >#)
+            if line.startswith("># "):
+                include_path = line[3:].strip()
+                try:
+                    include_content = self._read_include_file(include_path)
+                    # Insert the content lines at current position
+                    include_lines = include_content.strip().split("\n")
+                    lines[i:i+1] = include_lines  # Replace current line with include content
+                    # Don't increment i since we want to process the first included line
+                    continue
+                except Exception as e:
+                    # If include fails, treat as comment and skip
+                    print(f"Warning: Could not include file '{include_path}': {e}", file=sys.stderr)
+                    i += 1
+                    continue
+
             # Empty line - end current block
             if not line:
                 if current_block_lines:
@@ -518,6 +534,18 @@ plt.close()
         if self.current_slide_blocks:
             self.slides.append(self.current_slide_blocks.copy())
             self.current_slide_blocks = []
+
+    def _read_include_file(self, include_path: str) -> str:
+        """Read and return the content of an include file."""
+        import os
+
+        # Handle relative paths relative to the input file's directory
+        if self.input_filename and not os.path.isabs(include_path):
+            input_dir = os.path.dirname(self.input_filename)
+            include_path = os.path.join(input_dir, include_path)
+
+        with open(include_path, 'r', encoding='utf-8') as f:
+            return f.read()
 
 
 class BeamerGenerator:
