@@ -495,16 +495,25 @@ plt.close()
 
         # Check for list (lines starting with - or numbered, or heading followed by dashes)
         has_dashes = any(line.strip().startswith("-") for line in lines)
-        has_heading = (
-            len(lines) > 1 and not lines[0].strip().startswith("-") and has_dashes
-        )
+
+        # Check for proper heading followed by list items
+        # All lines after the first must be either empty or start with optional whitespace + dash + whitespace
+        has_proper_heading = False
+        if len(lines) > 1 and not lines[0].strip().startswith("-") and has_dashes:
+            # Check that all lines after the first are either empty or proper list items
+            lines_after_heading = lines[1:]
+            has_proper_heading = all(
+                not line.strip() or re.match(r'^\s*-\s', line)
+                for line in lines_after_heading
+            )
+
         is_all_dashes = all(
             line.strip().startswith("-") or not line.strip()
             for line in lines
             if line.strip()
         )
 
-        if has_dashes and (is_all_dashes or has_heading):
+        if has_dashes and (is_all_dashes or has_proper_heading):
             self.current_slide_blocks.append(Block(BlockType.LIST, content))
             return
 
@@ -907,14 +916,26 @@ class BeamerGenerator:
             # Generate the complete LaTeX output
             latex_parts = []
 
+            # Add space above for above annotations (reduced by 1em)
+            if above_space > 0:
+                adjusted_above_space = max(0, above_space - 1)
+                if adjusted_above_space > 0:
+                    latex_parts.append(f"\\vspace{{{adjusted_above_space}em}}")
+
             # Add the equation
             latex_parts.append(
                 f"\\begin{{align}}\\abovedisplayskip=0pt\\belowdisplayskip=0pt{annotated_equation}\\end{{align}}"
             )
-            latex_parts.append("")
 
             # Add the tikzpicture
             latex_parts.extend(tikz_code)
+
+            # Add space below for below annotations (with line break to prevent separation issues, reduced by 2em)
+            if below_space > 0:
+                adjusted_below_space = max(0, below_space - 2)
+                latex_parts.append("")  # Empty line for proper spacing
+                if adjusted_below_space > 0:
+                    latex_parts.append(f"\\vspace{{{adjusted_below_space}em}}")
         else:
             # No annotations, just the equation
             latex_parts = []
