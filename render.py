@@ -13,7 +13,6 @@ from tqdm import tqdm
 class BlockType(Enum):
     SECTION = "section"
     SLIDE_TITLE = "slide_title"
-    EQUATION = "equation"
     ANNOTATED_EQUATION = "annotated_equation"
     TABLE = "table"
     LIST = "list"
@@ -450,43 +449,33 @@ plt.close()
 
         content = "\n".join(lines)
 
-        # Check for annotated equation (starts with $$ and has content after)
-        if lines[0].startswith("$$") and len(lines) > 1:
+        # Check for equation (starts with $$)
+        if lines[0].startswith("$$"):
             # Find where equation ends
             equation_end = -1
             for i, line in enumerate(lines):
-                if line.endswith("$$"):
+                # For multiline equations, skip the first line which starts with $$
+                # Only consider a line ending if it's not the first line or if it's a single line equation
+                if line.endswith("$$") and (i > 0 or lines[0].strip() != "$$"):
                     equation_end = i
                     break
 
             if equation_end >= 0:
                 equation_lines = lines[: equation_end + 1]
-                annotation_lines = lines[equation_end + 1 :]
+                annotation_lines = lines[equation_end + 1 :] if equation_end + 1 < len(lines) else []
 
-                if annotation_lines:  # Has annotations
-                    self.current_slide_blocks.append(
-                        Block(
-                            BlockType.ANNOTATED_EQUATION,
-                            content,
-                            {
-                                "equation": "\n".join(equation_lines),
-                                "annotations": "\n".join(annotation_lines),
-                            },
-                        )
+                # Always use ANNOTATED_EQUATION type, even if no annotations
+                self.current_slide_blocks.append(
+                    Block(
+                        BlockType.ANNOTATED_EQUATION,
+                        content,
+                        {
+                            "equation": "\n".join(equation_lines),
+                            "annotations": "\n".join(annotation_lines) if annotation_lines else "",
+                        },
                     )
-                    return
-
-        # Check for simple equation block
-        if lines[0].startswith("$$") and lines[-1].endswith("$$") and len(lines) == 1:
-            equation = lines[0]
-            self.current_slide_blocks.append(Block(BlockType.EQUATION, equation))
-            return
-
-        # Check for multi-line equation block (only equation, no annotations)
-        if lines[0].startswith("$$") and lines[-1].endswith("$$"):
-            equation = "\n".join(lines)
-            self.current_slide_blocks.append(Block(BlockType.EQUATION, equation))
-            return
+                )
+                return
 
         # Check for table (markdown table syntax)
         if self._is_markdown_table(lines):
@@ -637,6 +626,8 @@ class BeamerGenerator:
 \makeatother
 \usepackage{tikz}
 \usetikzlibrary{tikzmark,calc,positioning}
+\pgfdeclarelayer{background}
+\pgfsetlayers{background,main}
 \usepackage{colortbl}
 \usepackage{array}
 \usepackage{booktabs}
@@ -833,9 +824,7 @@ class BeamerGenerator:
 
     def _format_block(self, block: Block, has_columns: bool = False) -> str:
         """Format a single block based on its type."""
-        if block.type == BlockType.EQUATION:
-            return self._format_equation(block.content)
-        elif block.type == BlockType.ANNOTATED_EQUATION:
+        if block.type == BlockType.ANNOTATED_EQUATION:
             return self._format_annotated_equation(block)
         elif block.type == BlockType.TABLE:
             return self._format_table(block.content)
@@ -850,84 +839,73 @@ class BeamerGenerator:
         else:
             return block.content
 
-    def _format_equation(self, content: str) -> str:
-        """Format equation content using align environment instead of $$..$$."""
-        # Remove the $$ markers from beginning and end
-        equation_content = content.strip()
-        if equation_content.startswith("$$") and equation_content.endswith("$$"):
-            equation_content = equation_content[2:-2].strip()
-
-        # Use align environment with reduced spacing to match $$...$$ spacing
-        return f"\\begin{{align}}\\abovedisplayskip=0pt\\belowdisplayskip=0pt{equation_content}\\end{{align}}"
 
     def _format_annotated_equation(self, block: Block) -> str:
         """Format an annotated equation with tikzmarknode annotations."""
         equation = block.metadata["equation"]
         annotations = block.metadata["annotations"]
 
-        # Parse annotations
-        annotation_lines = annotations.split("\n")
-
-        # Find the dash marker line (contains only spaces and dashes)
-        dash_line = None
-        annotation_specs = []
-
-        for line in annotation_lines:
-            line_stripped = line.strip()
-            if not line_stripped:
-                continue
-
-            # Check if this is the dash marker line (preserve original spacing)
-            if re.match(r"^[\s\-]+$", line):
-                dash_line = line  # Keep original line with spaces
-            # Check if this is an annotation spec (N^ or Nv format)
-            elif re.match(r"^\d+[v^]", line_stripped):
-                annotation_specs.append(line_stripped)
-
-        if not dash_line:
-            # Fallback to old behavior if no dash line found
-            return self._format_annotated_equation_old(block)
-
-        # Parse the equation (remove $$ markers)
+        # Parse the equation (remove $$ markers but preserve internal spacing)
         equation_content = equation.strip()
         if equation_content.startswith("$$") and equation_content.endswith("$$"):
-            equation_content = equation_content[2:-2].strip()
+            # Remove $$ from first and last lines while preserving internal formatting
+            lines = equation_content.split("\n")
+            if len(lines) == 1:
+                # Single line equation
+                equation_content = lines[0][2:-2]
+            else:
+                # Multi-line equation
+                lines[0] = lines[0][2:]  # Remove $$ from first line
+                lines[-1] = lines[-1][:-2]  # Remove $$ from last line
+                equation_content = "\n".join(lines)
 
-        # Parse dash markers and create tikzmarknode-wrapped equation
-        annotated_equation, node_names = self._create_tikzmarknode_equation(
-            equation_content, dash_line
+        # Parse new annotation format: [[ exact string ]] Label
+        annotation_specs = []
+        if annotations.strip():
+            for line in annotations.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+
+                # Match [[ exact string ]] Label format
+                match = re.match(r'^\[\[\s*(.*)\s*\]\]\s+(.*)$', line)
+                if match:
+                    exact_string = match.group(1).strip()  # Trim edges but keep internal whitespace
+                    label = match.group(2).strip()
+                    annotation_specs.append((exact_string, label))
+
+        # If no annotations, render as simple equation
+        if not annotation_specs:
+            return f"\\begin{{align}}\\abovedisplayskip=0pt\\belowdisplayskip=0pt{equation_content}\\end{{align}}"
+
+        # Create tikzmarknode-wrapped equation
+        annotated_equation, node_names = self._create_tikzmarknode_equation_new(
+            equation_content, annotation_specs
         )
 
-        # Parse annotation specifications
-        annotations_above, annotations_below = self._parse_annotation_specs(
-            annotation_specs
-        )
+        # Convert annotation specs to old format for existing placement logic
+        annotations_below = {}
+        for i, (exact_string, label) in enumerate(annotation_specs, 1):
+            annotations_below[i] = label
 
-        # Generate tikzpicture with annotations
-        if annotations_above or annotations_below:
+        # Generate tikzpicture with annotations (all below for now)
+        if annotations_below:
             tikz_code, space_requirements = self._generate_tikzpicture_annotations(
-                annotations_above, annotations_below, node_names
+                {}, annotations_below, node_names  # Empty dict for above annotations
             )
 
             # Calculate required spacing
-            above_space = space_requirements["above"]
             below_space = space_requirements["below"]
 
             # Generate the complete LaTeX output
             latex_parts = []
 
-            # Add space above for above annotations (reduced by 1em)
-            if above_space > 0:
-                adjusted_above_space = max(0, above_space - 1)
-                if adjusted_above_space > 0:
-                    latex_parts.append(f"\\vspace{{{adjusted_above_space}em}}")
-
-            # Add the equation
+            # Add the equation first so nodes are defined
             latex_parts.append(
                 f"\\begin{{align}}\\abovedisplayskip=0pt\\belowdisplayskip=0pt{annotated_equation}\\end{{align}}"
             )
 
-            # Add the tikzpicture
+            # Add annotation lines and text (background fill is now handled by tikzmarknode)
             latex_parts.extend(tikz_code)
 
             # Add space below for below annotations (with line break to prevent separation issues, reduced by 2em)
@@ -938,92 +916,78 @@ class BeamerGenerator:
                     latex_parts.append(f"\\vspace{{{adjusted_below_space}em}}")
         else:
             # No annotations, just the equation
-            latex_parts = []
-            latex_parts.append(
+            latex_parts = [
                 f"\\begin{{align}}\\abovedisplayskip=0pt\\belowdisplayskip=0pt{annotated_equation}\\end{{align}}"
-            )
+            ]
 
         return "\n".join(latex_parts)
 
-    def _create_tikzmarknode_equation(
-        self, equation_content: str, dash_line: str
+    def _create_tikzmarknode_equation_new(
+        self, equation_content: str, annotation_specs: List[Tuple[str, str]]
     ) -> Tuple[str, Dict[int, str]]:
-        """Create equation with tikzmarknode wrappers based on dash positions."""
-        # Find dash segments in the dash line
-        dash_segments = []
-        in_dash = False
-        start_pos = None
-
-        for i, char in enumerate(dash_line):
-            if char == "-" and not in_dash:
-                start_pos = i
-                in_dash = True
-            elif char != "-" and in_dash:
-                if start_pos is not None:
-                    dash_segments.append((start_pos, i - 1))
-                in_dash = False
-
-        # Handle case where dash continues to end of line
-        if in_dash and start_pos is not None:
-            dash_segments.append((start_pos, len(dash_line) - 1))
-
-        # Build the annotated equation
-        result = ""
-        last_end = 0
+        """Create equation with tikzmarknode wrappers based on exact string matching."""
+        result = equation_content
         node_names = {}  # Map annotation position to node name
 
-        for i, (start, end) in enumerate(dash_segments):
-            # Apply 2-position offset to align with intended segments
-            adj_start = max(0, start - 2)
-            adj_end = max(0, end - 2)
+        # Process annotations in order from longest to shortest to avoid substring conflicts
+        # Sort by string length descending, but preserve original indices for node naming
+        sorted_specs = sorted(enumerate(annotation_specs, 1), key=lambda x: len(x[1][0]), reverse=True)
 
-            # Add content before this segment
-            if adj_start > last_end:
-                result += equation_content[last_end:adj_start]
+        for i, (exact_string, label) in sorted_specs:
+            # Find the first occurrence of the exact string that's not inside tikzmarknode
+            pos = result.find(exact_string)
 
-            # Extract the segment content, ensuring bounds
-            if adj_end + 1 <= len(equation_content):
-                segment_content = equation_content[adj_start : adj_end + 1]
-            else:
-                segment_content = equation_content[adj_start:]
+            # Check if this match is inside an existing tikzmarknode wrapper
+            while pos != -1:
+                # Look backwards from pos to see if we're inside a tikzmarknode
+                before_match = result[:pos]
+                # Find the last tikzmarknode opening before this position
+                last_node_start = before_match.rfind('\\tikzmarknode{')
+                if last_node_start != -1:
+                    # Find the corresponding closing brace
+                    brace_count = 0
+                    inside_tikzmarknode = False
+                    for j in range(last_node_start + len('\\tikzmarknode{'), len(before_match) + len(exact_string)):
+                        if j >= len(result):
+                            break
+                        char = result[j]
+                        if char == '{':
+                            brace_count += 1
+                            if brace_count == 1:  # This is the content opening brace
+                                content_start = j + 1
+                        elif char == '}':
+                            brace_count -= 1
+                            if brace_count == 0:  # This closes the content
+                                content_end = j
+                                # Check if our match is within this tikzmarknode content
+                                if content_start <= pos < content_end:
+                                    inside_tikzmarknode = True
+                                break
+
+                    if inside_tikzmarknode:
+                        # Look for next occurrence after this tikzmarknode
+                        pos = result.find(exact_string, pos + len(exact_string))
+                        continue
+
+                # This position is valid (not inside tikzmarknode)
+                break
+
+            if pos == -1:
+                raise ValueError(f"Annotation string '[[ {exact_string} ]]' not found in equation (or only found inside existing annotations)")
 
             # Generate unique node name
             self.node_counter += 1
             node_name = f"node{self.node_counter}"
-            node_names[i + 1] = node_name  # Position 1, 2, 3, 4...
+            node_names[i] = node_name
 
-            # Wrap in tikzmarknode
-            result += f"\\tikzmarknode{{{node_name}}}{{{segment_content}}}"
-
-            last_end = adj_end + 1
-
-        # Add remaining content
-        if last_end < len(equation_content):
-            result += equation_content[last_end:]
+            # Replace the exact string with tikzmarknode wrapper that includes background fill
+            before = result[:pos]
+            after = result[pos + len(exact_string):]
+            wrapped = f"\\tikzmarknode[fill=ncorange!25,inner sep=1pt]{{{node_name}}}{{{exact_string}}}"
+            result = before + wrapped + after
 
         return result, node_names
 
-    def _parse_annotation_specs(
-        self, annotation_specs: List[str]
-    ) -> Tuple[Dict[int, str], Dict[int, str]]:
-        """Parse annotation specifications into above and below dictionaries."""
-        annotations_above = {}
-        annotations_below = {}
-
-        for spec in annotation_specs:
-            # Parse format: "N^" or "Nv" followed by text
-            match = re.match(r"^(\d+)([v^])\s*(.*)$", spec)
-            if match:
-                position = int(match.group(1))
-                direction = match.group(2)
-                text = match.group(3).strip()
-
-                if direction == "^":
-                    annotations_above[position] = text
-                elif direction == "v":
-                    annotations_below[position] = text
-
-        return annotations_above, annotations_below
 
     def _generate_tikzpicture_annotations(
         self,
@@ -1034,6 +998,7 @@ class BeamerGenerator:
         """Generate tikzpicture code for annotations and return space requirements."""
         tikz_parts = []
         tikz_parts.append("\\begin{tikzpicture}[remember picture, overlay]")
+
 
         # Calculate heights with left/right alignment optimization
         above_heights = {}
@@ -1119,6 +1084,8 @@ class BeamerGenerator:
             xshift = "-0.2em" if anchor == "base east" else "0.2em"
 
             tikz_parts.append(f"    %below annotation {pos}")
+
+            # Draw the annotation line and connecting line
             tikz_parts.append(
                 f"    \\draw[ncorange, line width=0.4mm] ([yshift=-.5em]{node_name}.base west) -- ([yshift=-.5em]{node_name}.base east);"
             )
@@ -1133,65 +1100,6 @@ class BeamerGenerator:
         tikz_parts.append("\\end{tikzpicture}")
         return tikz_parts, space_requirements
 
-    def _format_annotated_equation_old(self, block: Block) -> str:
-        """Fallback method for old annotation format."""
-        equation = block.metadata["equation"]
-        annotations = block.metadata["annotations"]
-
-        # Parse annotations
-        annotation_lines = annotations.split("\n")
-        latex_parts = []
-
-        latex_parts.append("\\begin{columns}")
-        latex_parts.append("\\begin{column}{0.6\\textwidth}")
-
-        # Convert equation to use align environment
-        equation_content = equation.strip()
-        if equation_content.startswith("$$") and equation_content.endswith("$$"):
-            equation_content = equation_content[2:-2].strip()
-            latex_parts.append(
-                f"\\begin{{align}}\\abovedisplayskip=0pt\\belowdisplayskip=0pt{equation_content}\\end{{align}}"
-            )
-        else:
-            latex_parts.append(equation)
-        latex_parts.append("\\end{column}")
-        latex_parts.append("\\begin{column}{0.4\\textwidth}")
-        latex_parts.append("\\footnotesize")
-
-        # Process annotation lines
-        for line in annotation_lines:
-            line = line.strip()
-            if not line:
-                continue
-
-            # Handle numbered annotations (1^, 2^, etc.)
-            if re.match(r"^\d+\^", line):
-                num = line[0]
-                text = line[2:].strip()
-                latex_parts.append(f"\\textbf{{{num}.}} {text}\\\\")
-            # Handle value annotations (3v, 4v, etc.)
-            elif re.match(r"^\d+v", line):
-                num = line[0]
-                text = line[2:].strip()
-                latex_parts.append(f"\\textit{{{num}.}} {text}\\\\")
-            # Handle table-like annotations with ---
-            elif "---" in line:
-                parts = line.split("---")
-                if len(parts) >= 2:
-                    headers = parts[0].strip().split()
-                    values = parts[1].strip().split()
-
-                    latex_parts.append("\\begin{tabular}{ll}")
-                    for i, (header, value) in enumerate(zip(headers, values)):
-                        latex_parts.append(f"{header} & {value} \\\\")
-                    latex_parts.append("\\end{tabular}")
-            else:
-                latex_parts.append(line + "\\\\")
-
-        latex_parts.append("\\end{column}")
-        latex_parts.append("\\end{columns}")
-
-        return "\n".join(latex_parts)
 
     def _format_table(self, content: str) -> str:
         """Format markdown table content."""
