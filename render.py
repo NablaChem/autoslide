@@ -67,12 +67,17 @@ class MarkdownBeamerParser:
                     include_content = self._read_include_file(include_path)
                     # Insert the content lines at current position
                     include_lines = include_content.strip().split("\n")
-                    lines[i:i+1] = include_lines  # Replace current line with include content
+                    lines[i : i + 1] = (
+                        include_lines  # Replace current line with include content
+                    )
                     # Don't increment i since we want to process the first included line
                     continue
                 except Exception as e:
                     # If include fails, treat as comment and skip
-                    print(f"Warning: Could not include file '{include_path}': {e}", file=sys.stderr)
+                    print(
+                        f"Warning: Could not include file '{include_path}': {e}",
+                        file=sys.stderr,
+                    )
                     i += 1
                     continue
 
@@ -462,7 +467,9 @@ plt.close()
 
             if equation_end >= 0:
                 equation_lines = lines[: equation_end + 1]
-                annotation_lines = lines[equation_end + 1 :] if equation_end + 1 < len(lines) else []
+                annotation_lines = (
+                    lines[equation_end + 1 :] if equation_end + 1 < len(lines) else []
+                )
 
                 # Always use ANNOTATED_EQUATION type, even if no annotations
                 self.current_slide_blocks.append(
@@ -471,7 +478,9 @@ plt.close()
                         content,
                         {
                             "equation": "\n".join(equation_lines),
-                            "annotations": "\n".join(annotation_lines) if annotation_lines else "",
+                            "annotations": (
+                                "\n".join(annotation_lines) if annotation_lines else ""
+                            ),
                         },
                     )
                 )
@@ -492,7 +501,7 @@ plt.close()
             # Check that all lines after the first are either empty or proper list items
             lines_after_heading = lines[1:]
             has_proper_heading = all(
-                not line.strip() or re.match(r'^\s*-\s', line)
+                not line.strip() or re.match(r"^\s*-\s", line)
                 for line in lines_after_heading
             )
 
@@ -542,7 +551,7 @@ plt.close()
             input_dir = os.path.dirname(self.input_filename)
             include_path = os.path.join(input_dir, include_path)
 
-        with open(include_path, 'r', encoding='utf-8') as f:
+        with open(include_path, "r", encoding="utf-8") as f:
             return f.read()
 
 
@@ -839,7 +848,6 @@ class BeamerGenerator:
         else:
             return block.content
 
-
     def _format_annotated_equation(self, block: Block) -> str:
         """Format an annotated equation with tikzmarknode annotations."""
         equation = block.metadata["equation"]
@@ -868,9 +876,11 @@ class BeamerGenerator:
                     continue
 
                 # Match [[ exact string ]] Label format
-                match = re.match(r'^\[\[\s*(.*)\s*\]\]\s+(.*)$', line)
+                match = re.match(r"^\[\[\s*(.*)\s*\]\]\s+(.*)$", line)
                 if match:
-                    exact_string = match.group(1).strip()  # Trim edges but keep internal whitespace
+                    exact_string = match.group(
+                        1
+                    ).strip()  # Trim edges but keep internal whitespace
                     label = match.group(2).strip()
                     annotation_specs.append((exact_string, label))
 
@@ -883,15 +893,28 @@ class BeamerGenerator:
             equation_content, annotation_specs
         )
 
-        # Convert annotation specs to old format for existing placement logic
+        # Determine optimal placement for annotations
+        above_placements, below_placements = self._determine_annotation_placement(
+            annotated_equation, annotation_specs, node_names
+        )
+
+        # Convert placements to old format for existing tikzpicture generation
+        annotations_above = {}
         annotations_below = {}
         for i, (exact_string, label) in enumerate(annotation_specs, 1):
-            annotations_below[i] = label
+            if i in above_placements:
+                annotations_above[i] = label
+            elif i in below_placements:
+                annotations_below[i] = label
 
-        # Generate tikzpicture with annotations (all below for now)
-        if annotations_below:
+        # Generate tikzpicture with annotations
+        if annotations_above or annotations_below:
             tikz_code, space_requirements = self._generate_tikzpicture_annotations(
-                {}, annotations_below, node_names  # Empty dict for above annotations
+                annotations_above,
+                annotations_below,
+                node_names,
+                above_placements,
+                below_placements,
             )
 
             # Calculate required spacing
@@ -931,7 +954,9 @@ class BeamerGenerator:
 
         # Process annotations in order from longest to shortest to avoid substring conflicts
         # Sort by string length descending, but preserve original indices for node naming
-        sorted_specs = sorted(enumerate(annotation_specs, 1), key=lambda x: len(x[1][0]), reverse=True)
+        sorted_specs = sorted(
+            enumerate(annotation_specs, 1), key=lambda x: len(x[1][0]), reverse=True
+        )
 
         for i, (exact_string, label) in sorted_specs:
             # Find the first occurrence of the exact string that's not inside tikzmarknode
@@ -941,21 +966,24 @@ class BeamerGenerator:
             while pos != -1:
                 # Look backwards from pos to see if we're inside a tikzmarknode
                 before_match = result[:pos]
-                # Find the last tikzmarknode opening before this position
-                last_node_start = before_match.rfind('\\tikzmarknode{')
+                # Find the last tikzmarknode opening before this position (including the configuration)
+                last_node_start = before_match.rfind("\\tikzmarknode[")
                 if last_node_start != -1:
                     # Find the corresponding closing brace
                     brace_count = 0
                     inside_tikzmarknode = False
-                    for j in range(last_node_start + len('\\tikzmarknode{'), len(before_match) + len(exact_string)):
+                    for j in range(
+                        last_node_start + len("\\tikzmarknode{"),
+                        len(before_match) + len(exact_string),
+                    ):
                         if j >= len(result):
                             break
                         char = result[j]
-                        if char == '{':
+                        if char == "{":
                             brace_count += 1
                             if brace_count == 1:  # This is the content opening brace
                                 content_start = j + 1
-                        elif char == '}':
+                        elif char == "}":
                             brace_count -= 1
                             if brace_count == 0:  # This closes the content
                                 content_end = j
@@ -973,7 +1001,9 @@ class BeamerGenerator:
                 break
 
             if pos == -1:
-                raise ValueError(f"Annotation string '[[ {exact_string} ]]' not found in equation (or only found inside existing annotations)")
+                raise ValueError(
+                    f"Annotation string '[[ {exact_string} ]]' not found in equation (or only found inside existing annotations)"
+                )
 
             # Generate unique node name
             self.node_counter += 1
@@ -982,23 +1012,541 @@ class BeamerGenerator:
 
             # Replace the exact string with tikzmarknode wrapper that includes background fill
             before = result[:pos]
-            after = result[pos + len(exact_string):]
+            after = result[pos + len(exact_string) :]
             wrapped = f"\\tikzmarknode[fill=ncorange!25,inner sep=1pt]{{{node_name}}}{{{exact_string}}}"
             result = before + wrapped + after
 
         return result, node_names
 
+    def _determine_annotation_placement(
+        self,
+        equation_with_nodes: str,
+        annotation_specs: List[Tuple[str, str]],
+        node_names: Dict[int, str],
+    ) -> Tuple[Dict[int, Tuple[float, str]], Dict[int, Tuple[float, str]]]:
+        """Determine optimal placement for annotations using bounding box analysis.
+
+        Args:
+            equation_with_nodes: LaTeX equation string with tikzmarknode wrappers already inserted
+            annotation_specs: List of (exact_string, label) tuples
+            node_names: Mapping from annotation position to node name
+
+        Returns:
+            Tuple of (above_placements, below_placements) where each is a dict mapping
+            annotation position -> (vertical_coordinate_em, anchor_direction)
+            anchor_direction is either "base east" (right-aligned) or "base west" (left-aligned)
+        """
+        if not annotation_specs:
+            return {}, {}
+
+        # Configuration - all values in pt (points)
+        PAGE_WIDTH_PT = 455.0  # Page width in points
+        HORIZONTAL_PADDING_PT = 10.0  # Clearance around annotations in points
+
+        # Step 1: Measure bounding boxes and node positions using LaTeX
+        try:
+            bounding_boxes, node_positions = self._measure_annotation_bounding_boxes(
+                equation_with_nodes, annotation_specs, node_names
+            )
+        except Exception as e:
+            print(f"Error measuring bounding boxes: {e}", file=sys.stderr)
+            print(f"Equation: {equation_with_nodes}", file=sys.stderr)
+            print(f"Annotations: {annotation_specs}", file=sys.stderr)
+            # Fallback to simple placement
+            below_placements = {}
+            for i, (exact_string, label) in enumerate(annotation_specs, 1):
+                if i in node_names:
+                    below_placements[i] = (2.0, "base west")
+            return {}, below_placements
+
+        # Step 2: Find optimal placement using brute force search
+        above_placements, below_placements = self._find_optimal_placement(
+            annotation_specs,
+            bounding_boxes,
+            node_positions,
+            node_names,
+            PAGE_WIDTH_PT,
+            HORIZONTAL_PADDING_PT,
+        )
+
+        # print(f"Debug: Measured node positions: {node_positions}", file=sys.stderr)
+        # print(f"Debug: Final above_placements: {above_placements}", file=sys.stderr)
+        # print(f"Debug: Final below_placements: {below_placements}", file=sys.stderr)
+        return above_placements, below_placements
+
+    def _measure_annotation_bounding_boxes(
+        self,
+        equation_with_nodes: str,
+        annotation_specs: List[Tuple[str, str]],
+        node_names: Dict[int, str],
+    ) -> Tuple[Dict[int, Tuple[float, float]], Dict[int, float]]:
+        """Measure bounding boxes of annotation text and tikzmarknode positions using LaTeX.
+
+        Returns:
+            Tuple of (bounding_boxes, node_positions) where:
+            - bounding_boxes: Dict mapping annotation index -> (width_em, height_em)
+            - node_positions: Dict mapping annotation index -> x_position_em
+        """
+        import tempfile
+        import os
+        import subprocess
+        import re
+        import shutil
+
+        # Create a temporary directory for LaTeX compilation
+        temp_dir = tempfile.mkdtemp()
+
+        try:
+            # Create a temporary LaTeX document to measure all annotations
+            measurement_latex = self._create_measurement_document(
+                equation_with_nodes, annotation_specs, node_names
+            )
+
+            # Write to temporary file in the temporary directory
+            temp_tex_path = os.path.join(temp_dir, "measurement.tex")
+            with open(temp_tex_path, "w", encoding="utf-8") as f:
+                f.write(measurement_latex)
+
+            # Create empty navigation file to satisfy beamer requirements
+            with open(os.path.join(temp_dir, "measurement.nav"), "w") as f:
+                f.write("")
+
+            # Run latexmk with XeLaTeX to compile and measure (handles multiple runs automatically)
+            result = subprocess.run(
+                ["latexmk", "-xelatex", "-interaction=nonstopmode", "measurement.tex"],
+                capture_output=True,
+                text=True,
+                cwd=temp_dir,
+            )
+
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"LaTeX compilation failed with return code {result.returncode}:\nStdout:\n{result.stdout}\nStderr:\n{result.stderr}"
+                )
+
+            # Parse measurements from log file
+            log_path = os.path.join(temp_dir, "measurement.log")
+
+            # Debug output removed
+
+            bounding_boxes, node_positions = self._parse_measurements_from_log(
+                log_path, len(annotation_specs)
+            )
+
+            # Debug: print measurements (only if verbose mode enabled)
+            # print(f"Debug: Measured bounding boxes: {bounding_boxes}", file=sys.stderr)
+            # print(f"Debug: Measured node positions: {node_positions}", file=sys.stderr)
+
+            return bounding_boxes, node_positions
+
+        finally:
+            # Clean up entire temporary directory
+            try:
+                shutil.rmtree(temp_dir)
+            except OSError:
+                pass
+
+    def _create_measurement_document(
+        self,
+        equation_with_nodes: str,
+        annotation_specs: List[Tuple[str, str]],
+        node_names: Dict[int, str],
+    ) -> str:
+        """Create LaTeX document for measuring annotation bounding boxes."""
+        # Use exactly the same preamble as the main document
+        preamble = r"""\documentclass[aspectratio=169,t]{beamer}
+% Theme and font setup
+\usetheme{default}
+\usepackage{graphicx}
+\usepackage{fontspec}
+\usefonttheme{professionalfonts} % using non standard fonts for beamer
+\usefonttheme{serif} % default family is serif
+\setmainfont{Fira Sans}[
+  UprightFont = *-Light,
+  BoldFont = *,
+  ItalicFont = *-Light Italic,
+  BoldItalicFont = * Italic
+]
+\usepackage{xcolor}
+\definecolor{navyblue}{RGB}{10,45,100}
+\definecolor{ncorange}{RGB}{221,150,51}
+\definecolor{ncblue}{RGB}{10,45,100}
+
+\usepackage[para]{footmisc}
+\setbeamercolor{section title}{fg=navyblue}
+\setbeamerfont{section title}{series=\bfseries}
+
+\setbeamercolor{frametitle}{bg=ncblue, fg=white}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{itemize item}{\textcolor{navyblue}{\textendash}}
+\setbeamertemplate{itemize subitem}{\textcolor{navyblue}{\textendash}}
+\setbeamertemplate{itemize subsubitem}{\textcolor{navyblue}{\textendash}}
+\setlength{\leftmargini}{1em}
+\setlength{\leftmarginii}{2em}
+\setlength{\leftmarginiii}{3em}
+\setbeamercolor{footnote mark}{fg=orange}
+\setbeamertemplate{footnote mark}{[\insertfootnotemark]}
+\setbeamertemplate{frametitle}{%
+  \vskip-0.2ex
+  \makebox[\paperwidth][s]{%
+    \begin{beamercolorbox}[wd=\paperwidth,ht=2.5ex,dp=1ex,leftskip=1em,rightskip=1em]{frametitle}%
+      \usebeamerfont{frametitle}%
+      \insertframetitle\hfill{\footnotesize \insertframenumber}
+    \end{beamercolorbox}%
+  }%
+  \tikzset{tikzmark prefix=frame\insertframenumber}
+}
+\usepackage{amsmath}
+\renewcommand{\theequation}{\textcolor{ncorange}{\arabic{equation}}}
+\makeatletter
+\renewcommand{\tagform@}[1]{\maketag@@@{\textcolor{ncorange}{(#1)}}}
+\makeatother
+\usepackage{tikz}
+\usetikzlibrary{tikzmark,calc,positioning}
+\pgfdeclarelayer{background}
+\pgfsetlayers{background,main}
+\usepackage{colortbl}
+\usepackage{array}
+\usepackage{booktabs}
+\setlength{\parskip}{1.5em}
+\setlength{\parindent}{0pt}
+\setlength{\abovedisplayskip}{0pt}
+\setlength{\belowdisplayskip}{0pt}
+\setlength{\abovedisplayshortskip}{0pt}
+\setlength{\belowdisplayshortskip}{0pt}
+
+\begin{document}
+\newlength{\tempx}
+\begin{frame}[t]
+\footnotesize
+"""
+
+        # Add the equation with tikzmarknode wrappers to measure node positions
+        # Ensure the equation has proper line endings for align environment
+        equation_lines = equation_with_nodes.strip().split("\n")
+        formatted_lines = []
+        for i, line in enumerate(equation_lines):
+            line = line.strip()
+            if line and i < len(equation_lines) - 1:
+                formatted_lines.append(line)
+            elif line:
+                formatted_lines.append(line)
+
+        formatted_equation = " ".join(formatted_lines)
+
+        equation_command = f"""
+% Render equation to measure node positions
+\\begin{{align}}{equation_with_nodes}\\end{{align}}
+"""
+
+        # Create measurement commands for each annotation text
+        measurement_commands = [equation_command]
+        for i, (exact_string, label) in enumerate(annotation_specs, 1):
+            # Use letters instead of numbers for savebox names (A, B, C, etc.)
+            letter = chr(ord("A") + i - 1)  # A=1, B=2, C=3, etc.
+            measurement_commands.append(
+                f"""
+% Measure annotation {i}: {label}
+\\newsavebox{{\\measurebox{letter}}}
+\\sbox{{\\measurebox{letter}}}{{\\footnotesize {label}}}
+\\typeout{{ANNOTATION{i}: width=\\the\\wd\\measurebox{letter}, height=\\the\\ht\\measurebox{letter}}}
+"""
+            )
+
+        # Add position measurements for each node using tikz coordinate extraction
+        # These need to be after the equation is rendered so the nodes exist
+        position_measurements = []
+        for i, node_name in node_names.items():
+            position_measurements.append(
+                f"""
+% Measure position of node {i} ({node_name})
+\\begin{{tikzpicture}}[remember picture, overlay]
+\\coordinate (temp) at ({node_name}.base);
+\\path let \\p1 = (temp) in \\pgfextra{{
+    \\pgfmathsetmacro{{\\tempx}}{{\\x{{1}}/1pt}}
+    \\pgfmathsetmacro{{\\tempy}}{{\\y{{1}}/1pt}}
+    \\typeout{{NODEPOS{i}: x=\\tempx pt, y=\\tempy pt}}
+}};
+\\end{{tikzpicture}}
+"""
+            )
+
+        # Combine all measurements: equation first, then text measurements, then position measurements
+        measurement_commands.extend(position_measurements)
+
+        document = (
+            preamble
+            + "\n".join(measurement_commands)
+            + "\n\\end{frame}\n\\end{document}"
+        )
+        return document
+
+    def _parse_measurements_from_log(
+        self, log_path: str, num_annotations: int
+    ) -> Tuple[Dict[int, Tuple[float, float]], Dict[int, float]]:
+        """Parse bounding box measurements and node positions from LaTeX log file.
+
+        Returns:
+            Tuple of (bounding_boxes, node_positions) where:
+            - bounding_boxes: Dict mapping annotation index -> (width_pt, height_pt)
+            - node_positions: Dict mapping annotation index -> x_position_pt
+        """
+        bounding_boxes = {}
+        node_positions = {}
+
+        with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+            log_content = f.read()
+
+        # Parse bounding box measurements from typeout commands
+        for i in range(1, num_annotations + 1):
+            pattern = f"ANNOTATION{i}: width=([0-9.]+)pt, height=([0-9.]+)pt"
+            match = re.search(pattern, log_content)
+            if match:
+                width_pt = float(match.group(1))
+                height_pt = float(match.group(2))
+                # Keep values in pt - no conversion needed
+                bounding_boxes[i] = (width_pt, height_pt)
+            else:
+                # Fallback if measurement not found
+                print(
+                    f"Warning: Could not find measurement for annotation {i}",
+                    file=sys.stderr,
+                )
+                bounding_boxes[i] = (50.0, 12.0)  # Default reasonable size in pt
+
+        # Parse node position measurements
+        for i in range(1, num_annotations + 1):
+            # Look for the format: NODEPOS1: x=123.456pt, y=789.012pt (no space before pt)
+            pattern = f"NODEPOS{i}: x=([0-9.-]+)pt, y=([0-9.-]+)pt"
+            match = re.search(pattern, log_content)
+            # print(f"Debug: Searching for pattern '{pattern}' in log", file=sys.stderr)
+            if match:
+                x_pt = float(match.group(1))
+                # Keep x position in pt - no conversion needed
+                node_positions[i] = x_pt
+
+        return bounding_boxes, node_positions
+
+    def _find_optimal_placement(
+        self,
+        annotation_specs: List[Tuple[str, str]],
+        bounding_boxes: Dict[int, Tuple[float, float]],
+        node_positions: Dict[int, float],
+        node_names: Dict[int, str],
+        page_width_pt: float,
+        horizontal_padding_pt: float,
+    ) -> Tuple[Dict[int, Tuple[float, str]], Dict[int, Tuple[float, str]]]:
+        """Find optimal placement using brute force search with minimal vertical levels."""
+        from itertools import product
+
+        num_annotations = len(annotation_specs)
+
+        # Simple brute force: try increasing number of levels until we find a solution
+        max_attempts = 5  # Safety limit
+
+        for num_levels in range(1, max_attempts + 1):
+            # Try with num_levels below the equation (keep it simple - only below for now)
+            # Use 15pt spacing between levels as specified
+            base_level_pt = 15.0  # First level at 15pt below equation
+            levels_below = [base_level_pt + i * 15.0 for i in range(num_levels)]
+            levels_above = []
+
+            # Try all combinations for this number of levels
+            all_combinations = self._generate_placement_combinations(
+                num_annotations, levels_above, levels_below
+            )
+
+            # Remove debug code - let the normal algorithm run
+            c = (
+                ("below", 15.0, "base east"),
+                ("below", 15.0, "base east"),
+                ("below", 15.0, "base east"),
+                ("below", 15.0, "base west"),
+            )
+            # all_combinations = [c]
+
+            for combination in all_combinations:
+                if self._check_placement_validity(
+                    combination,
+                    bounding_boxes,
+                    node_positions,
+                    page_width_pt,
+                    horizontal_padding_pt,
+                ):
+                    # Found valid placement with num_levels levels
+                    above_placements = {}
+                    below_placements = {}
+
+                    # print(f"Debug: Found valid placement with {num_levels} levels: {combination}", file=sys.stderr)
+                    for i, (position, level, anchor) in enumerate(combination, 1):
+                        if i in node_names:
+                            if position == "above":
+                                above_placements[i] = (level, anchor)
+                            else:  # position == "below"
+                                below_placements[i] = (level, anchor)
+
+                    return above_placements, below_placements
+
+        # If we get here, no solution found within reasonable bounds
+        print(
+            "Warning: Could not find valid placement within reasonable bounds",
+            file=sys.stderr,
+        )
+        below_placements = {}
+        for i, (exact_string, label) in enumerate(annotation_specs, 1):
+            if i in node_names:
+                below_placements[i] = (2.0 + i, "base west")
+        return {}, below_placements
+
+    def _generate_placement_combinations(
+        self, num_annotations: int, levels_above: List[float], levels_below: List[float]
+    ) -> List[List[Tuple[str, float, str]]]:
+        """Generate all possible placement combinations - simple brute force."""
+        from itertools import product
+
+        # For each annotation, generate all possible (position, level, anchor) options
+        options_per_annotation = []
+
+        for i in range(num_annotations):
+            annotation_options = []
+
+            # Below positions (only using below for simplicity)
+            for level in levels_below:
+                annotation_options.append(
+                    ("below", level, "base west")
+                )  # extends right
+                annotation_options.append(("below", level, "base east"))  # extends left
+
+            # Above positions (if any levels defined above)
+            for level in levels_above:
+                annotation_options.append(
+                    ("above", level, "base west")
+                )  # extends right
+                annotation_options.append(("above", level, "base east"))  # extends left
+
+            options_per_annotation.append(annotation_options)
+
+        # Generate all combinations - no sorting, just return them in iterator order
+        combinations = list(product(*options_per_annotation))
+        return combinations
+
+    def _check_placement_validity(
+        self,
+        combination: List[Tuple[str, float, str]],
+        bounding_boxes: Dict[int, Tuple[float, float]],
+        node_positions: Dict[int, float],
+        page_width_pt: float,
+        horizontal_padding_pt: float,
+    ) -> bool:
+        """Check if a placement combination is valid (no overlaps, fits in page width)."""
+
+        # Group annotations by position and level for collision detection
+        placements_by_level = {}
+
+        for i, (position, level, anchor) in enumerate(combination, 1):
+            if i not in bounding_boxes or i not in node_positions:
+                continue
+
+            width_pt, height_pt = bounding_boxes[i]
+            node_x = node_positions[i]
+            print(node_x, file=sys.stderr)
+            padded_width = width_pt + 1 * horizontal_padding_pt
+
+            # Calculate annotation bounds based on anchor
+            if anchor == "base west":  # Left-aligned text extends right from node
+                left_bound = node_x
+                right_bound = node_x + padded_width
+            else:  # "base east" - Right-aligned text extends left from node
+                left_bound = node_x - padded_width
+                right_bound = node_x
+
+            key = (position, level)
+            if key not in placements_by_level:
+                placements_by_level[key] = []
+
+            placements_by_level[key].append(
+                (i, left_bound, right_bound, anchor, padded_width)
+            )
+
+        print(placements_by_level, file=sys.stderr)
+
+        # Check each level for overlaps and page width constraints
+        for (position, level), annotations in placements_by_level.items():
+            # Sort annotations by left bound for overlap detection
+            annotations.sort(key=lambda x: x[1])  # Sort by left_bound
+
+            # Check for overlaps between adjacent annotations
+            for j in range(len(annotations) - 1):
+                curr = annotations[j]
+                next_ann = annotations[j + 1]
+
+                curr_right = curr[2]  # right_bound
+                next_left = next_ann[1]  # left_bound
+
+                if curr_right > next_left:
+                    # print(
+                    #     f"Debug: Overlap detected - annotation {curr[0]} ends at {curr_right:.2f}pt, annotation {next_ann[0]} starts at {next_left:.2f}pt",
+                    #     file=sys.stderr,
+                    # )
+                    return False
+
+            # Check if any annotation extends beyond page boundaries
+            for i, left_bound, right_bound, anchor, width in annotations:
+                if left_bound < 0 or right_bound > page_width_pt:
+                    print(
+                        f"Debug: Annotation {i} extends beyond page bounds: [{left_bound:.2f}, {right_bound:.2f}]pt",
+                        file=sys.stderr,
+                    )
+                    return False
+        print("no overlaps within levels", file=sys.stderr)
+
+        # Check for vertical line crossings: text boxes crossing through vertical lines from other levels
+        for (position_1, level_1), annotations_1 in placements_by_level.items():
+            for (position_2, level_2), annotations_2 in placements_by_level.items():
+                # only check same position
+                if position_1 != position_2:
+                    continue
+
+                # only check different levels
+                if level_1 >= level_2:
+                    continue
+
+                # Check if any text box from level_1 crosses through vertical lines from level_2
+                for ann_1 in annotations_1:
+                    ann_1_id, ann_1_left, ann_1_right, ann_1_anchor, ann_1_width = ann_1
+
+                    for ann_2 in annotations_2:
+                        ann_2_id, ann_2_left, ann_2_right, ann_2_anchor, ann_2_width = (
+                            ann_2
+                        )
+
+                        # Get the vertical line position for annotation 2 (its node position)
+                        if ann_2_id in node_positions:
+                            vertical_line_x = node_positions[ann_2_id]
+
+                            # Check if annotation 1's text box crosses through annotation 2's vertical line
+                            # Use 10pt clearance as specified
+                            clearance = 5.0
+                            if (
+                                ann_1_left < vertical_line_x + clearance
+                                and ann_1_right > vertical_line_x - clearance
+                            ):
+                                return False
+
+        print(f"Debug: Placement accepted - no overlaps detected", file=sys.stderr)
+        return True
 
     def _generate_tikzpicture_annotations(
         self,
         annotations_above: Dict[int, str],
         annotations_below: Dict[int, str],
         node_names: Dict[int, str],
+        above_placements: Dict[int, Tuple[float, str]] = None,
+        below_placements: Dict[int, Tuple[float, str]] = None,
     ) -> Tuple[List[str], Dict[str, int]]:
         """Generate tikzpicture code for annotations and return space requirements."""
         tikz_parts = []
         tikz_parts.append("\\begin{tikzpicture}[remember picture, overlay]")
-
 
         # Calculate heights with left/right alignment optimization
         above_heights = {}
@@ -1006,42 +1554,60 @@ class BeamerGenerator:
         above_anchors = {}  # Track which side each annotation goes on
         below_anchors = {}
 
-        # Assign heights for above annotations with left/right pairing
-        sorted_above = sorted(annotations_above.keys())
-        for i, pos in enumerate(sorted_above):
-            if i < len(sorted_above) / 2:
-                # Left side: positions 1, 2 (ascending heights)
-                above_heights[pos] = 2 + i  # 2em, 3em
-                above_anchors[pos] = (
-                    "base east"  # Right-aligned text (anchored to east)
-                )
-            else:
-                # Right side: positions 3, 4 - reverse order for pyramid shape
-                # Position 3 gets height of position 2, position 4 gets height of position 1
-                right_index = len(sorted_above) - 1 - i  # Reverse mapping
-                above_heights[pos] = 2 + right_index  # 3em, 2em (descending)
-                above_anchors[pos] = "base west"  # Left-aligned text (anchored to west)
+        # Use placement information if provided, otherwise fall back to old logic
+        if above_placements is not None:
+            # Use new placement logic for above annotations
+            for pos in annotations_above.keys():
+                if pos in above_placements:
+                    height, anchor = above_placements[pos]
+                    above_heights[pos] = height
+                    above_anchors[pos] = anchor
+        else:
+            # Fall back to old placement logic for above annotations
+            sorted_above = sorted(annotations_above.keys())
+            for i, pos in enumerate(sorted_above):
+                if i < len(sorted_above) / 2:
+                    # Left side: positions 1, 2 (ascending heights)
+                    above_heights[pos] = 2 + i  # 2em, 3em
+                    above_anchors[pos] = (
+                        "base east"  # Right-aligned text (anchored to east)
+                    )
+                else:
+                    # Right side: positions 3, 4 - reverse order for pyramid shape
+                    right_index = len(sorted_above) - 1 - i  # Reverse mapping
+                    above_heights[pos] = 2 + right_index  # 3em, 2em (descending)
+                    above_anchors[pos] = (
+                        "base west"  # Left-aligned text (anchored to west)
+                    )
 
-        # Assign heights for below annotations with left/right pairing
-        sorted_below = sorted(annotations_below.keys())
-        for i, pos in enumerate(sorted_below):
-            if i < len(sorted_below) / 2:
-                # Left side (ascending heights)
-                below_heights[pos] = 2 + i  # 2em, 3em
-                below_anchors[pos] = "base east"  # Right-aligned text
-            else:
-                # Right side - reverse order for pyramid shape
-                right_index = len(sorted_below) - 1 - i  # Reverse mapping
-                below_heights[pos] = 2 + right_index  # 3em, 2em (descending)
-                below_anchors[pos] = "base west"  # Left-aligned text
+        if below_placements is not None:
+            # Use new placement logic for below annotations
+            for pos in annotations_below.keys():
+                if pos in below_placements:
+                    height, anchor = below_placements[pos]
+                    below_heights[pos] = height
+                    below_anchors[pos] = anchor
+        else:
+            # Fall back to old placement logic for below annotations
+            sorted_below = sorted(annotations_below.keys())
+            for i, pos in enumerate(sorted_below):
+                if i < len(sorted_below) / 2:
+                    # Left side (ascending heights)
+                    below_heights[pos] = 2 + i  # 2em, 3em
+                    below_anchors[pos] = "base east"  # Right-aligned text
+                else:
+                    # Right side - reverse order for pyramid shape
+                    right_index = len(sorted_below) - 1 - i  # Reverse mapping
+                    below_heights[pos] = 2 + right_index  # 3em, 2em (descending)
+                    below_anchors[pos] = "base west"  # Left-aligned text
 
-        # Calculate space requirements
+        # Calculate space requirements in pt
         max_above_height = max(above_heights.values()) if above_heights else 0
         max_below_height = max(below_heights.values()) if below_heights else 0
 
         # Add buffer for below annotations since they extend down from equation baseline
-        # The annotation extends down by the height value, plus some padding
-        adjusted_below_height = max_below_height + 1 if max_below_height > 0 else 0
+        # The annotation extends down by the height value, plus some padding (in pt)
+        adjusted_below_height = max_below_height + 10 if max_below_height > 0 else 0
 
         space_requirements = {"above": max_above_height, "below": adjusted_below_height}
 
@@ -1056,19 +1622,19 @@ class BeamerGenerator:
             # Determine xshift based on anchor - shift outwards more for space saving
             xshift = "-0.2em" if anchor == "base east" else "0.2em"
 
-            # Reduce height by 0.5em and adjust yshift to align text anchor with line end
-            reduced_height = height - 0.5
-            yshift = "0.3em"  # Shift down slightly like bottom annotations
+            # Convert height from pt to LaTeX output (still using pt)
+            reduced_height = height - 5.0  # Reduce by 5pt instead of 0.5em
+            yshift = "3pt"  # Shift down slightly like bottom annotations
 
             tikz_parts.append(f"    %above annotation {pos}")
             tikz_parts.append(
-                f"    \\draw[ncorange, line width=0.4mm] ([yshift=1em]{node_name}.base west) -- ([yshift=1em]{node_name}.base east);"
+                f"    \\draw[ncorange, line width=0.4mm] ([yshift=10pt]{node_name}.base west) -- ([yshift=10pt]{node_name}.base east);"
             )
             tikz_parts.append(
-                f"    \\draw[ncorange,] ([yshift=1em]{node_name}.base) -- ([yshift={height}em]{node_name}.base);"
+                f"    \\draw[ncorange,] ([yshift=10pt]{node_name}.base) -- ([yshift={height}pt]{node_name}.base);"
             )
             tikz_parts.append(
-                f"    \\node[above={reduced_height}em of {node_name}.base,anchor={anchor},inner sep=0,xshift={xshift},yshift={yshift},text=ncorange] {{{text}}};"
+                f"    \\node[above={reduced_height}pt of {node_name}.base,anchor={anchor},inner sep=0,xshift={xshift},yshift={yshift},text=ncorange] {{{text}}};"
             )
             tikz_parts.append("")
 
@@ -1081,25 +1647,24 @@ class BeamerGenerator:
             anchor = below_anchors[pos]
 
             # Determine xshift based on anchor
-            xshift = "-0.2em" if anchor == "base east" else "0.2em"
+            xshift = "-2pt" if anchor == "base east" else "2pt"
 
             tikz_parts.append(f"    %below annotation {pos}")
 
             # Draw the annotation line and connecting line
             tikz_parts.append(
-                f"    \\draw[ncorange, line width=0.4mm] ([yshift=-.5em]{node_name}.base west) -- ([yshift=-.5em]{node_name}.base east);"
+                f"    \\draw[ncorange, line width=0.4mm] ([yshift=-5pt]{node_name}.base west) -- ([yshift=-5pt]{node_name}.base east);"
             )
             tikz_parts.append(
-                f"    \\draw[ncorange,] ([yshift=-.5em]{node_name}.base) -- ([yshift=-{height}em]{node_name}.base);"
+                f"    \\draw[ncorange,] ([yshift=-5pt]{node_name}.base) -- ([yshift=-{height}pt]{node_name}.base);"
             )
             tikz_parts.append(
-                f"    \\node[below={height}em of {node_name}.base,anchor={anchor},inner sep=0,xshift={xshift},yshift=-0.3em,text=ncorange] {{{text}}};"
+                f"    \\node[below={height}pt of {node_name}.base,anchor={anchor},inner sep=0,xshift={xshift},yshift=-3pt,text=ncorange] {{{text}}};"
             )
             tikz_parts.append("")
 
         tikz_parts.append("\\end{tikzpicture}")
         return tikz_parts, space_requirements
-
 
     def _format_table(self, content: str) -> str:
         """Format markdown table content."""
