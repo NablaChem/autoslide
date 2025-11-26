@@ -1015,7 +1015,7 @@ class BeamerGenerator:
             # Replace the exact string with tikzmarknode wrapper that includes background fill
             before = result[:pos]
             after = result[pos + len(exact_string) :]
-            wrapped = f"\\tikzmarknode[fill=ncorange!25,inner sep=1pt]{{{node_name}}}{{{exact_string}}}"
+            wrapped = f"\\tikzmarknode[fill=ncorange!25,inner sep=1pt,outer sep=0pt]{{{node_name}}}{{{exact_string}}}"
             result = before + wrapped + after
 
         return result, node_names
@@ -1682,13 +1682,17 @@ class BeamerGenerator:
 
             tikz_parts.append(f"    %above annotation {pos}")
             tikz_parts.append(
+                f"\path[fill=ncorange!25,draw=none,line width=0pt] ({node_name}.north west) -- ({node_name}.north east) -- ([yshift=10pt]{node_name}.base east) -- ([yshift=10pt]{node_name}.base west) -- cycle;"
+            )
+
+            tikz_parts.append(
                 f"    \\draw[ncorange, line width=0.4mm] ([yshift=10pt]{node_name}.base west) -- ([yshift=10pt]{node_name}.base east);"
             )
             tikz_parts.append(
                 f"    \\draw[ncorange,] ([yshift=10pt]{node_name}.base) -- ([yshift={height}pt]{node_name}.base);"
             )
             tikz_parts.append(
-                f"    \\node[above={reduced_height}pt of {node_name}.base,anchor={anchor},inner sep=0,xshift={xshift},yshift={yshift},text=ncorange] {{{text}}};"
+                f"    \\node[above={reduced_height}pt of {node_name}.base,anchor={anchor},inner sep=0,outer sep=0,xshift={xshift},yshift={yshift},text=ncorange] {{{text}}};"
             )
             tikz_parts.append("")
 
@@ -1704,6 +1708,9 @@ class BeamerGenerator:
             xshift = "-2pt" if anchor == "base east" else "2pt"
 
             tikz_parts.append(f"    %below annotation {pos}")
+            tikz_parts.append(
+                f"\path[fill=ncorange!25,draw=none,line width=0pt] ({node_name}.south west) -- ({node_name}.south east) -- ([yshift=-5pt]{node_name}.base east) -- ([yshift=-5pt]{node_name}.base west) -- cycle;"
+            )
 
             # Draw the annotation line and connecting line
             tikz_parts.append(
@@ -1713,7 +1720,7 @@ class BeamerGenerator:
                 f"    \\draw[ncorange,] ([yshift=-5pt]{node_name}.base) -- ([yshift=-{height}pt]{node_name}.base);"
             )
             tikz_parts.append(
-                f"    \\node[below={height}pt of {node_name}.base,anchor={anchor},inner sep=0,xshift={xshift},yshift=-3pt,text=ncorange] {{{text}}};"
+                f"    \\node[below={height}pt of {node_name}.base,anchor={anchor},inner sep=0,outer sep=0,xshift={xshift},yshift=-3pt,text=ncorange] {{{text}}};"
             )
             tikz_parts.append("")
 
