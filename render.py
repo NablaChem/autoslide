@@ -931,12 +931,14 @@ class BeamerGenerator:
             # Add annotation lines and text (background fill is now handled by tikzmarknode)
             latex_parts.extend(tikz_code)
 
-            # Add space below for below annotations (with line break to prevent separation issues, reduced by 2em)
+            # Add space below for below annotations (convert from pt to em: 1em ≈ 12pt)
             if below_space > 0:
-                adjusted_below_space = max(0, below_space - 2)
+                # Convert from pt to em and reduce by 2em
+                below_space_em = below_space / 12.0  # Convert pt to em
+                adjusted_below_space = max(0, below_space_em - 2)
                 latex_parts.append("")  # Empty line for proper spacing
                 if adjusted_below_space > 0:
-                    latex_parts.append(f"\\vspace{{{adjusted_below_space}em}}")
+                    latex_parts.append(f"\\vspace{{{adjusted_below_space:.1f}em}}")
         else:
             # No annotations, just the equation
             latex_parts = [
@@ -1045,8 +1047,10 @@ class BeamerGenerator:
 
         # Step 1: Measure bounding boxes and node positions using LaTeX
         try:
-            bounding_boxes, node_positions = self._measure_annotation_bounding_boxes(
-                equation_with_nodes, annotation_specs, node_names
+            bounding_boxes, node_positions, node_shifts = (
+                self._measure_annotation_bounding_boxes(
+                    equation_with_nodes, annotation_specs, node_names
+                )
             )
         except Exception as e:
             print(f"Error measuring bounding boxes: {e}", file=sys.stderr)
@@ -1067,6 +1071,7 @@ class BeamerGenerator:
             node_names,
             PAGE_WIDTH_PT,
             HORIZONTAL_PADDING_PT,
+            node_shifts,
         )
 
         # print(f"Debug: Measured node positions: {node_positions}", file=sys.stderr)
@@ -1079,13 +1084,14 @@ class BeamerGenerator:
         equation_with_nodes: str,
         annotation_specs: List[Tuple[str, str]],
         node_names: Dict[int, str],
-    ) -> Tuple[Dict[int, Tuple[float, float]], Dict[int, float]]:
+    ) -> Tuple[Dict[int, Tuple[float, float]], Dict[int, float], Dict[int, float]]:
         """Measure bounding boxes of annotation text and tikzmarknode positions using LaTeX.
 
         Returns:
-            Tuple of (bounding_boxes, node_positions) where:
-            - bounding_boxes: Dict mapping annotation index -> (width_em, height_em)
-            - node_positions: Dict mapping annotation index -> x_position_em
+            Tuple of (bounding_boxes, node_positions, node_shifts) where:
+            - bounding_boxes: Dict mapping annotation index -> (width_pt, height_pt)
+            - node_positions: Dict mapping annotation index -> x_position_pt
+            - node_shifts: Dict mapping annotation index -> y_shift_from_baseline_pt
         """
         import tempfile
         import os
@@ -1129,15 +1135,16 @@ class BeamerGenerator:
 
             # Debug output removed
 
-            bounding_boxes, node_positions = self._parse_measurements_from_log(
-                log_path, len(annotation_specs)
+            bounding_boxes, node_positions, node_shifts = (
+                self._parse_measurements_from_log(log_path, len(annotation_specs))
             )
 
             # Debug: print measurements (only if verbose mode enabled)
             # print(f"Debug: Measured bounding boxes: {bounding_boxes}", file=sys.stderr)
             # print(f"Debug: Measured node positions: {node_positions}", file=sys.stderr)
+            # print(f"Debug: Measured node shifts: {node_shifts}", file=sys.stderr)
 
-            return bounding_boxes, node_positions
+            return bounding_boxes, node_positions, node_shifts
 
         finally:
             # Clean up entire temporary directory
@@ -1232,11 +1239,24 @@ class BeamerGenerator:
             elif line:
                 formatted_lines.append(line)
 
-        formatted_equation = " ".join(formatted_lines)
+        # Add baseline node with space character at the beginning of the equation
+        # Generate unique baseline node name
+        self.node_counter += 1
+        baseline_node_name = f"baseline{self.node_counter}"
+
+        # Insert the baseline node at the start of the first line
+        if formatted_lines:
+            formatted_lines[0] = (
+                f"\\tikzmarknode{{{baseline_node_name}}}{{ }} {formatted_lines[0]}"
+            )
+        else:
+            formatted_lines = [f"\\tikzmarknode{{{baseline_node_name}}}{{ }}"]
+
+        equation_with_baseline = "\n".join(formatted_lines)
 
         equation_command = f"""
-% Render equation to measure node positions
-\\begin{{align}}{equation_with_nodes}\\end{{align}}
+% Render equation with baseline node to measure node positions
+\\begin{{align}}{equation_with_baseline}\\end{{align}}
 """
 
         # Create measurement commands for each annotation text
@@ -1256,20 +1276,35 @@ class BeamerGenerator:
         # Add position measurements for each node using tikz coordinate extraction
         # These need to be after the equation is rendered so the nodes exist
         position_measurements = []
+        position_measurements.append("\\begin{tikzpicture}[remember picture,overlay]")
+
+        # First measure baseline node position
+        position_measurements.append(
+            f"""
+% Measure position of baseline node ({baseline_node_name})
+\\coordinate (temp) at ({baseline_node_name}.base);
+\\path let \\p1 = (temp) in \\pgfextra{{
+    \\pgfmathsetmacro{{\\tempx}}{{\\x{{1}}/1pt}}
+    \\pgfmathsetmacro{{\\tempy}}{{\\y{{1}}/1pt}}
+    \\typeout{{BASELINEPOS: x=\\tempx pt, y=\\tempy pt}}
+}};
+"""
+        )
+
+        # Then measure annotation node positions
         for i, node_name in node_names.items():
             position_measurements.append(
                 f"""
 % Measure position of node {i} ({node_name})
-\\begin{{tikzpicture}}[remember picture, overlay]
 \\coordinate (temp) at ({node_name}.base);
 \\path let \\p1 = (temp) in \\pgfextra{{
     \\pgfmathsetmacro{{\\tempx}}{{\\x{{1}}/1pt}}
     \\pgfmathsetmacro{{\\tempy}}{{\\y{{1}}/1pt}}
     \\typeout{{NODEPOS{i}: x=\\tempx pt, y=\\tempy pt}}
 }};
-\\end{{tikzpicture}}
 """
             )
+        position_measurements.append("\\end{tikzpicture}")
 
         # Combine all measurements: equation first, then text measurements, then position measurements
         measurement_commands.extend(position_measurements)
@@ -1283,19 +1318,31 @@ class BeamerGenerator:
 
     def _parse_measurements_from_log(
         self, log_path: str, num_annotations: int
-    ) -> Tuple[Dict[int, Tuple[float, float]], Dict[int, float]]:
+    ) -> Tuple[Dict[int, Tuple[float, float]], Dict[int, float], Dict[int, float]]:
         """Parse bounding box measurements and node positions from LaTeX log file.
 
         Returns:
-            Tuple of (bounding_boxes, node_positions) where:
+            Tuple of (bounding_boxes, node_positions, node_shifts) where:
             - bounding_boxes: Dict mapping annotation index -> (width_pt, height_pt)
             - node_positions: Dict mapping annotation index -> x_position_pt
+            - node_shifts: Dict mapping annotation index -> y_shift_from_baseline_pt
         """
         bounding_boxes = {}
         node_positions = {}
+        node_shifts = {}
 
         with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
             log_content = f.read()
+
+        # Parse baseline position first
+        baseline_y = None
+        baseline_pattern = "BASELINEPOS: x=([0-9.-]+)pt, y=([0-9.-]+)pt"
+        baseline_match = re.search(baseline_pattern, log_content)
+        if baseline_match:
+            baseline_y = float(baseline_match.group(2))
+        else:
+            print("Warning: Could not find baseline position", file=sys.stderr)
+            baseline_y = 0.0  # Fallback to 0 if baseline not found
 
         # Parse bounding box measurements from typeout commands
         for i in range(1, num_annotations + 1):
@@ -1314,18 +1361,20 @@ class BeamerGenerator:
                 )
                 bounding_boxes[i] = (50.0, 12.0)  # Default reasonable size in pt
 
-        # Parse node position measurements
+        # Parse node position measurements and calculate shifts from baseline
         for i in range(1, num_annotations + 1):
             # Look for the format: NODEPOS1: x=123.456pt, y=789.012pt (no space before pt)
             pattern = f"NODEPOS{i}: x=([0-9.-]+)pt, y=([0-9.-]+)pt"
             match = re.search(pattern, log_content)
-            # print(f"Debug: Searching for pattern '{pattern}' in log", file=sys.stderr)
             if match:
                 x_pt = float(match.group(1))
+                y_pt = float(match.group(2))
                 # Keep x position in pt - no conversion needed
                 node_positions[i] = x_pt
+                # Calculate shift from baseline (positive means above baseline)
+                node_shifts[i] = y_pt - baseline_y
 
-        return bounding_boxes, node_positions
+        return bounding_boxes, node_positions, node_shifts
 
     def _find_optimal_placement(
         self,
@@ -1335,6 +1384,7 @@ class BeamerGenerator:
         node_names: Dict[int, str],
         page_width_pt: float,
         horizontal_padding_pt: float,
+        node_shifts: Dict[int, float],
     ) -> Tuple[Dict[int, Tuple[float, str]], Dict[int, Tuple[float, str]]]:
         """Find optimal placement using brute force search with minimal vertical levels."""
         from itertools import product
@@ -1349,13 +1399,12 @@ class BeamerGenerator:
             # Use 15pt spacing between levels as specified
             base_level_pt = 15.0  # First level at 15pt below equation
             levels_below = [base_level_pt + i * 15.0 for i in range(num_levels)]
-            levels_above = []
+            levels_above = [20.0]
 
             # Try all combinations for this number of levels
             all_combinations = self._generate_placement_combinations(
                 num_annotations, levels_above, levels_below
             )
-
             # Remove debug code - let the normal algorithm run
             c = (
                 ("below", 15.0, "base east"),
@@ -1364,7 +1413,6 @@ class BeamerGenerator:
                 ("below", 15.0, "base west"),
             )
             # all_combinations = [c]
-
             for combination in all_combinations:
                 if self._check_placement_validity(
                     combination,
@@ -1372,6 +1420,7 @@ class BeamerGenerator:
                     node_positions,
                     page_width_pt,
                     horizontal_padding_pt,
+                    node_shifts,
                 ):
                     # Found valid placement with num_levels levels
                     above_placements = {}
@@ -1437,19 +1486,24 @@ class BeamerGenerator:
         node_positions: Dict[int, float],
         page_width_pt: float,
         horizontal_padding_pt: float,
+        node_shifts: Dict[int, float],
     ) -> bool:
         """Check if a placement combination is valid (no overlaps, fits in page width)."""
-
         # Group annotations by position and level for collision detection
         placements_by_level = {}
 
         for i, (position, level, anchor) in enumerate(combination, 1):
+            if node_shifts[i] < 0 and position == "above":
+                # Node is below baseline, cannot place annotation above
+                return False
+            if node_shifts[i] > 0 and position == "below":
+                # Node is above baseline, cannot place annotation below
+                return False
             if i not in bounding_boxes or i not in node_positions:
                 continue
 
             width_pt, height_pt = bounding_boxes[i]
             node_x = node_positions[i]
-            print(node_x, file=sys.stderr)
             padded_width = width_pt + 1 * horizontal_padding_pt
 
             # Calculate annotation bounds based on anchor
@@ -1468,7 +1522,7 @@ class BeamerGenerator:
                 (i, left_bound, right_bound, anchor, padded_width)
             )
 
-        print(placements_by_level, file=sys.stderr)
+        # print(placements_by_level, file=sys.stderr)
 
         # Check each level for overlaps and page width constraints
         for (position, level), annotations in placements_by_level.items():
