@@ -1226,7 +1226,7 @@ class BeamerGenerator:
 \begin{document}
 \newlength{\tempx}
 \begin{frame}[t]
-\footnotesize
+\scriptsize
 """
 
         # Add the equation with tikzmarknode wrappers to measure node positions
@@ -1269,7 +1269,7 @@ class BeamerGenerator:
                 f"""
 % Measure annotation {i}: {label}
 \\newsavebox{{\\measurebox{letter}}}
-\\sbox{{\\measurebox{letter}}}{{\\footnotesize {label}}}
+\\sbox{{\\measurebox{letter}}}{{\\scriptsize {label}}}
 \\typeout{{ANNOTATION{i}: width=\\the\\wd\\measurebox{letter}, height=\\the\\ht\\measurebox{letter}}}
 """
             )
@@ -1693,7 +1693,7 @@ class BeamerGenerator:
                 f"    \\draw[ncorange,] ([yshift=13pt]{node_name}.base) -- ([yshift={height}pt]{node_name}.base);"
             )
             tikz_parts.append(
-                f"    \\node[above={reduced_height}pt of {node_name}.base,anchor={anchor},inner sep=0,outer sep=0,xshift={xshift},yshift={yshift},text=ncorange] {{{text}}};"
+                f"    \\node[above={reduced_height}pt of {node_name}.base,anchor={anchor},inner sep=0,outer sep=0,xshift={xshift},yshift={yshift},text=ncorange] {{\\scriptsize {text}}};"
             )
             tikz_parts.append("")
 
@@ -1721,7 +1721,7 @@ class BeamerGenerator:
                 f"    \\draw[ncorange,] ([yshift=-8pt]{node_name}.base) -- ([yshift=-{height}pt]{node_name}.base);"
             )
             tikz_parts.append(
-                f"    \\node[below={height}pt of {node_name}.base,anchor={anchor},inner sep=0,outer sep=0,xshift={xshift},yshift=-3pt,text=ncorange] {{{text}}};"
+                f"    \\node[below={height}pt of {node_name}.base,anchor={anchor},inner sep=0,outer sep=0,xshift={xshift},yshift=-3pt,text=ncorange] {{\\scriptsize {text}}};"
             )
             tikz_parts.append("")
 
