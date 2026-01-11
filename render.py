@@ -1056,6 +1056,7 @@ class BeamerGenerator:
             print(f"Error measuring bounding boxes: {e}", file=sys.stderr)
             print(f"Equation: {equation_with_nodes}", file=sys.stderr)
             print(f"Annotations: {annotation_specs}", file=sys.stderr)
+            raise
             # Fallback to simple placement
             below_placements = {}
             for i, (exact_string, label) in enumerate(annotation_specs, 1):
@@ -1127,7 +1128,7 @@ class BeamerGenerator:
 
             if result.returncode != 0:
                 raise RuntimeError(
-                    f"LaTeX compilation failed with return code {result.returncode}:\nStdout:\n{result.stdout}\nStderr:\n{result.stderr}"
+                    f"LaTeX compilation failed with return code {result.returncode}, see {temp_dir} for details.\n"
                 )
 
             # Parse measurements from log file
@@ -1546,7 +1547,7 @@ class BeamerGenerator:
 
             # Check if any annotation extends beyond page boundaries
             for i, left_bound, right_bound, anchor, width in annotations:
-                if left_bound < 0 or right_bound > page_width_pt:
+                if left_bound < 20 or right_bound > page_width_pt - 50:
                     print(
                         f"Debug: Annotation {i} extends beyond page bounds: [{left_bound:.2f}, {right_bound:.2f}]pt",
                         file=sys.stderr,
@@ -1586,7 +1587,7 @@ class BeamerGenerator:
                                 and ann_1_right > vertical_line_x - clearance
                             ):
                                 return False
-
+        print(placements_by_level, file=sys.stderr)
         print(f"Debug: Placement accepted - no overlaps detected", file=sys.stderr)
         return True
 
@@ -1682,14 +1683,14 @@ class BeamerGenerator:
 
             tikz_parts.append(f"    %above annotation {pos}")
             tikz_parts.append(
-                f"\path[fill=ncorange!25,draw=none,line width=0pt] ({node_name}.north west) -- ({node_name}.north east) -- ([yshift=10pt]{node_name}.base east) -- ([yshift=10pt]{node_name}.base west) -- cycle;"
+                f"\path[fill=ncorange!25,draw=none,line width=0pt] ({node_name}.north west) -- ({node_name}.north east) -- ([yshift=13pt]{node_name}.base east) -- ([yshift=13pt]{node_name}.base west) -- cycle;"
             )
 
             tikz_parts.append(
-                f"    \\draw[ncorange, line width=0.4mm] ([yshift=10pt]{node_name}.base west) -- ([yshift=10pt]{node_name}.base east);"
+                f"    \\draw[ncorange, line width=0.4mm] ([yshift=13pt]{node_name}.base west) -- ([yshift=13pt]{node_name}.base east);"
             )
             tikz_parts.append(
-                f"    \\draw[ncorange,] ([yshift=10pt]{node_name}.base) -- ([yshift={height}pt]{node_name}.base);"
+                f"    \\draw[ncorange,] ([yshift=13pt]{node_name}.base) -- ([yshift={height}pt]{node_name}.base);"
             )
             tikz_parts.append(
                 f"    \\node[above={reduced_height}pt of {node_name}.base,anchor={anchor},inner sep=0,outer sep=0,xshift={xshift},yshift={yshift},text=ncorange] {{{text}}};"
@@ -1709,15 +1710,15 @@ class BeamerGenerator:
 
             tikz_parts.append(f"    %below annotation {pos}")
             tikz_parts.append(
-                f"\path[fill=ncorange!25,draw=none,line width=0pt] ({node_name}.south west) -- ({node_name}.south east) -- ([yshift=-5pt]{node_name}.base east) -- ([yshift=-5pt]{node_name}.base west) -- cycle;"
+                f"\path[fill=ncorange!25,draw=none,line width=0pt] ({node_name}.south west) -- ({node_name}.south east) -- ([yshift=-8pt]{node_name}.base east) -- ([yshift=-8pt]{node_name}.base west) -- cycle;"
             )
 
             # Draw the annotation line and connecting line
             tikz_parts.append(
-                f"    \\draw[ncorange, line width=0.4mm] ([yshift=-5pt]{node_name}.base west) -- ([yshift=-5pt]{node_name}.base east);"
+                f"    \\draw[ncorange, line width=0.4mm] ([yshift=-8pt]{node_name}.base west) -- ([yshift=-8pt]{node_name}.base east);"
             )
             tikz_parts.append(
-                f"    \\draw[ncorange,] ([yshift=-5pt]{node_name}.base) -- ([yshift=-{height}pt]{node_name}.base);"
+                f"    \\draw[ncorange,] ([yshift=-8pt]{node_name}.base) -- ([yshift=-{height}pt]{node_name}.base);"
             )
             tikz_parts.append(
                 f"    \\node[below={height}pt of {node_name}.base,anchor={anchor},inner sep=0,outer sep=0,xshift={xshift},yshift=-3pt,text=ncorange] {{{text}}};"
