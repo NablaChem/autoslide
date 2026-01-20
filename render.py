@@ -13,6 +13,7 @@ from tqdm import tqdm
 class BlockType(Enum):
     SECTION = "section"
     SLIDE_TITLE = "slide_title"
+    TITLE_PAGE = "title_page"
     ANNOTATED_EQUATION = "annotated_equation"
     TABLE = "table"
     LIST = "list"
@@ -98,6 +99,23 @@ class MarkdownBeamerParser:
                 section_title = line[3:].strip()
                 self.current_slide_blocks.append(
                     Block(BlockType.SECTION, section_title)
+                )
+                i += 1
+                continue
+
+            # Check for title page (five #)
+            if line.startswith("##### "):
+                if current_block_lines:
+                    self._process_block_lines(current_block_lines)
+                    current_block_lines = []
+                self._finish_current_slide()
+
+                # Extract title from five # format
+                title = line[6:].strip()  # Remove "##### "
+                title = re.sub(r"#+$", "", title).strip()  # Remove trailing #
+
+                self.current_slide_blocks.append(
+                    Block(BlockType.TITLE_PAGE, title)
                 )
                 i += 1
                 continue
@@ -621,7 +639,7 @@ class BeamerGenerator:
   \makebox[\paperwidth][s]{%
     \begin{beamercolorbox}[wd=\paperwidth,ht=2.5ex,dp=1ex,leftskip=1em,rightskip=1em]{frametitle}%
       \usebeamerfont{frametitle}%
-      \insertframetitle\hfill{\footnotesize \insertframenumber}
+      \insertframetitle\ifx\insertframetitle\@empty\else\def\tempcomma{\,}\ifx\insertframetitle\tempcomma\else\hfill{\footnotesize \insertframenumber}\fi\fi
     \end{beamercolorbox}%
   }%
   % make sure all tikz node labels only exist on the same frame
@@ -731,6 +749,9 @@ class BeamerGenerator:
             if block.type == BlockType.SLIDE_TITLE:
                 slide_title = block.content
                 slide_metadata = block.metadata
+            elif block.type == BlockType.TITLE_PAGE:
+                # Title page slides have different style
+                return self._generate_title_page_slide(blocks)
             elif block.type == BlockType.FOOTLINE:
                 footline_content = block.content
             elif block.type == BlockType.FOOTNOTE:
@@ -772,6 +793,96 @@ class BeamerGenerator:
 
         # Finalize slide
         self._finalize_slide(slide_parts, footnotes)
+
+        return "\n".join(slide_parts)
+
+    def _generate_title_page_slide(self, blocks: List[Block]) -> str:
+        """Generate a title page slide with blue bar and no page number."""
+        slide_parts = []
+        title = ""
+        author = ""
+        email = ""
+        web = ""
+
+        # Extract title and metadata from blocks
+        for block in blocks:
+            if block.type == BlockType.TITLE_PAGE:
+                title = block.content
+            elif block.type == BlockType.TEXT:
+                content = block.content.strip()
+                # Parse metadata fields
+                lines = content.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if line.startswith(':author:'):
+                        author = line[8:].strip()  # Remove :author: prefix
+                    elif line.startswith(':email:'):
+                        email = ":email: " + line[7:].strip()  # Keep :email: for icon processing
+                    elif line.startswith(':web:'):
+                        web = ":web: " + line[5:].strip()  # Keep :web: for icon processing
+
+        # Start frame with special template that hides page number
+        slide_parts.append("\\setbeamertemplate{frametitle}{%")
+        slide_parts.append("  \\vskip-0.2ex")
+        slide_parts.append("  \\makebox[\\paperwidth][s]{%")
+        slide_parts.append("    \\begin{beamercolorbox}[wd=\\paperwidth,ht=2.5ex,dp=1ex,leftskip=1em,rightskip=1em]{frametitle}%")
+        slide_parts.append("      \\usebeamerfont{frametitle}%")
+        slide_parts.append("      \\insertframetitle")
+        slide_parts.append("    \\end{beamercolorbox}%")
+        slide_parts.append("  }%")
+        slide_parts.append("  \\tikzset{tikzmark prefix=frame\\insertframenumber}")
+        slide_parts.append("}")
+        slide_parts.append("\\begin{frame}[t]")
+        slide_parts.append("\\frametitle{\\,}")
+
+        # Start minipage matching inspiration.tex layout
+        slide_parts.append("\\vspace{-1.5em}\\hspace{-0.3em}\\begin{minipage}[t][0.88\\textheight]{\\textwidth}")
+        slide_parts.append("")
+        slide_parts.append("\\vfill")
+        slide_parts.append("")
+
+        # Add title with huge blue formatting
+        slide_parts.append(f"{{\\huge\\color{{ncblue}} {title}}}")
+        slide_parts.append("")
+
+        # Add author if present
+        if author:
+            slide_parts.append(author)
+            slide_parts.append("")
+
+        slide_parts.append("\\vfill")
+        slide_parts.append("")
+
+        # Add email and web with icon processing
+        contact_parts = []
+        if email:
+            processed_email = self._process_heading_icons(email)
+            contact_parts.append(processed_email)
+        if web:
+            processed_web = self._process_heading_icons(web)
+            contact_parts.append(processed_web)
+
+        if contact_parts:
+            slide_parts.append("\\hspace{2em}".join(contact_parts))  # 2em space between email and web
+            slide_parts.append("")
+            slide_parts.append("\\vspace{1em}")  # Add 1em space under web
+            slide_parts.append("")
+
+        slide_parts.append("")
+        slide_parts.append("\\end{minipage}")
+        slide_parts.append("\\end{frame}")
+        slide_parts.append("% Restore original frametitle template")
+        slide_parts.append("\\setbeamertemplate{frametitle}{%")
+        slide_parts.append("  \\vskip-0.2ex")
+        slide_parts.append("  \\makebox[\\paperwidth][s]{%")
+        slide_parts.append("    \\begin{beamercolorbox}[wd=\\paperwidth,ht=2.5ex,dp=1ex,leftskip=1em,rightskip=1em]{frametitle}%")
+        slide_parts.append("      \\usebeamerfont{frametitle}%")
+        slide_parts.append("      \\insertframetitle\\ifx\\insertframetitle\\@empty\\else\\def\\tempcomma{\\,}\\ifx\\insertframetitle\\tempcomma\\else\\hfill{\\footnotesize \\insertframenumber}\\fi\\fi")
+        slide_parts.append("    \\end{beamercolorbox}%")
+        slide_parts.append("  }%")
+        slide_parts.append("  \\tikzset{tikzmark prefix=frame\\insertframenumber}")
+        slide_parts.append("}")
+        slide_parts.append("")
 
         return "\n".join(slide_parts)
 
@@ -1965,6 +2076,10 @@ class BeamerGenerator:
 
     def _process_heading_icons(self, heading_text: str) -> str:
         """Process heading text to replace :icon_name: with rendered SVG icons."""
+        # First handle special icon mappings
+        heading_text = heading_text.replace(":email:", ":envelope:")
+        heading_text = heading_text.replace(":web:", ":globe:")
+
         # Pattern to match :icon_name: syntax
         icon_pattern = r":([a-zA-Z0-9_-]+):"
 
