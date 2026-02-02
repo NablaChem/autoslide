@@ -794,7 +794,7 @@ class BeamerGenerator:
         # Finalize slide
         self._finalize_slide(slide_parts, footnotes)
 
-        return "\n".join(slide_parts)
+        return "\n".join(part.rstrip() for part in slide_parts)
 
     def _generate_title_page_slide(self, blocks: List[Block]) -> str:
         """Generate a title page slide with blue bar and no page number."""
