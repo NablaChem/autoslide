@@ -114,9 +114,7 @@ class MarkdownBeamerParser:
                 title = line[6:].strip()  # Remove "##### "
                 title = re.sub(r"#+$", "", title).strip()  # Remove trailing #
 
-                self.current_slide_blocks.append(
-                    Block(BlockType.TITLE_PAGE, title)
-                )
+                self.current_slide_blocks.append(Block(BlockType.TITLE_PAGE, title))
                 i += 1
                 continue
 
@@ -678,8 +676,8 @@ class BeamerGenerator:
             return True
         else:
             # For single column, use full width and shift 2em left
-            slide_parts.append("\\hspace{-2em}")
-            slide_parts.append("\\begin{column}[t]{\\textwidth}")
+            slide_parts.append("\\hspace{0.3em}")
+            slide_parts.append("\\begin{column}[t]{1.07\\textwidth}")
             return True
 
     def _process_slide_blocks(
@@ -811,21 +809,27 @@ class BeamerGenerator:
             elif block.type == BlockType.TEXT:
                 content = block.content.strip()
                 # Parse metadata fields
-                lines = content.split('\n')
+                lines = content.split("\n")
                 for line in lines:
                     line = line.strip()
-                    if line.startswith(':author:'):
+                    if line.startswith(":author:"):
                         author = line[8:].strip()  # Remove :author: prefix
-                    elif line.startswith(':email:'):
-                        email = ":email: " + line[7:].strip()  # Keep :email: for icon processing
-                    elif line.startswith(':web:'):
-                        web = ":web: " + line[5:].strip()  # Keep :web: for icon processing
+                    elif line.startswith(":email:"):
+                        email = (
+                            ":email: " + line[7:].strip()
+                        )  # Keep :email: for icon processing
+                    elif line.startswith(":web:"):
+                        web = (
+                            ":web: " + line[5:].strip()
+                        )  # Keep :web: for icon processing
 
         # Start frame with special template that hides page number
         slide_parts.append("\\setbeamertemplate{frametitle}{%")
         slide_parts.append("  \\vskip-0.2ex")
         slide_parts.append("  \\makebox[\\paperwidth][s]{%")
-        slide_parts.append("    \\begin{beamercolorbox}[wd=\\paperwidth,ht=2.5ex,dp=1ex,leftskip=1em,rightskip=1em]{frametitle}%")
+        slide_parts.append(
+            "    \\begin{beamercolorbox}[wd=\\paperwidth,ht=2.5ex,dp=1ex,leftskip=1em,rightskip=1em]{frametitle}%"
+        )
         slide_parts.append("      \\usebeamerfont{frametitle}%")
         slide_parts.append("      \\insertframetitle")
         slide_parts.append("    \\end{beamercolorbox}%")
@@ -836,7 +840,9 @@ class BeamerGenerator:
         slide_parts.append("\\frametitle{\\,}")
 
         # Start minipage matching inspiration.tex layout
-        slide_parts.append("\\vspace{-1.5em}\\hspace{-0.3em}\\begin{minipage}[t][0.88\\textheight]{\\textwidth}")
+        slide_parts.append(
+            "\\vspace{-1.5em}\\hspace{-0.3em}\\begin{minipage}[t][0.88\\textheight]{\\textwidth}"
+        )
         slide_parts.append("")
         slide_parts.append("\\vfill")
         slide_parts.append("")
@@ -863,7 +869,9 @@ class BeamerGenerator:
             contact_parts.append(processed_web)
 
         if contact_parts:
-            slide_parts.append("\\hspace{2em}".join(contact_parts))  # 2em space between email and web
+            slide_parts.append(
+                "\\hspace{2em}".join(contact_parts)
+            )  # 2em space between email and web
             slide_parts.append("")
             slide_parts.append("\\vspace{1em}")  # Add 1em space under web
             slide_parts.append("")
@@ -875,9 +883,13 @@ class BeamerGenerator:
         slide_parts.append("\\setbeamertemplate{frametitle}{%")
         slide_parts.append("  \\vskip-0.2ex")
         slide_parts.append("  \\makebox[\\paperwidth][s]{%")
-        slide_parts.append("    \\begin{beamercolorbox}[wd=\\paperwidth,ht=2.5ex,dp=1ex,leftskip=1em,rightskip=1em]{frametitle}%")
+        slide_parts.append(
+            "    \\begin{beamercolorbox}[wd=\\paperwidth,ht=2.5ex,dp=1ex,leftskip=1em,rightskip=1em]{frametitle}%"
+        )
         slide_parts.append("      \\usebeamerfont{frametitle}%")
-        slide_parts.append("      \\insertframetitle\\ifx\\insertframetitle\\@empty\\else\\def\\tempcomma{\\,}\\ifx\\insertframetitle\\tempcomma\\else\\hfill{\\footnotesize \\insertframenumber}\\fi\\fi")
+        slide_parts.append(
+            "      \\insertframetitle\\ifx\\insertframetitle\\@empty\\else\\def\\tempcomma{\\,}\\ifx\\insertframetitle\\tempcomma\\else\\hfill{\\footnotesize \\insertframenumber}\\fi\\fi"
+        )
         slide_parts.append("    \\end{beamercolorbox}%")
         slide_parts.append("  }%")
         slide_parts.append("  \\tikzset{tikzmark prefix=frame\\insertframenumber}")
