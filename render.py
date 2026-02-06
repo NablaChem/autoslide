@@ -1138,7 +1138,7 @@ class BeamerGenerator:
             # Replace the exact string with tikzmarknode wrapper that includes background fill
             before = result[:pos]
             after = result[pos + len(exact_string) :]
-            wrapped = f"\\tikzmarknode[fill=ncorange!25,inner sep=1pt,outer sep=0pt]{{{node_name}}}{{{exact_string}}}"
+            wrapped = f"\\tikzmarknode[fill=ncorange!25,inner sep=1pt,outer sep=0pt]{{{node_name}}}{{{exact_string}\\mathstrut}}"
             result = before + wrapped + after
 
         return result, node_names
