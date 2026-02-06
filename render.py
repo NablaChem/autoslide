@@ -8,6 +8,8 @@ import os
 import tempfile
 import sys
 from tqdm import tqdm
+import json
+import hashlib
 
 
 class BlockType(Enum):
@@ -575,6 +577,66 @@ class BeamerGenerator:
     def __init__(self):
         self.footnote_counter = 0
         self.node_counter = 0
+        self.cache_file = ".autoslide.cache"
+        self._slide_cache = None
+
+    def _load_cache(self) -> Dict[str, str]:
+        """Load slide cache from disk. Returns empty dict if cache doesn't exist or is corrupted."""
+        if self._slide_cache is not None:
+            return self._slide_cache
+
+        self._slide_cache = {}
+        if not os.path.exists(self.cache_file):
+            return self._slide_cache
+
+        try:
+            with open(self.cache_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        entry = json.loads(line)
+                        self._slide_cache[entry['hash']] = entry['latex_source']
+        except (json.JSONDecodeError, KeyError, OSError):
+            # Corrupted cache - drop everything and start fresh
+            self._slide_cache = {}
+
+        return self._slide_cache
+
+    def _save_to_cache(self, cache_hash: str, latex_source: str) -> None:
+        """Save a cache entry to disk."""
+        try:
+            with open(self.cache_file, 'a', encoding='utf-8') as f:
+                entry = {'hash': cache_hash, 'latex_source': latex_source}
+                f.write(json.dumps(entry) + '\n')
+            # Update in-memory cache
+            if self._slide_cache is None:
+                self._slide_cache = {}
+            self._slide_cache[cache_hash] = latex_source
+        except OSError:
+            # Ignore write errors - caching is best effort
+            pass
+
+    def _hash_blocks(self, blocks: List[Block]) -> str:
+        """Generate a deterministic hash for a list of blocks."""
+        # Convert blocks to a deterministic JSON representation
+        block_data = []
+        for block in blocks:
+            block_dict = {
+                'type': block.type.value,
+                'content': block.content,
+                'metadata': block.metadata or {}
+            }
+            block_data.append(block_dict)
+
+        # Sort metadata keys for deterministic output
+        def sort_dict(obj):
+            if isinstance(obj, dict):
+                return {k: sort_dict(obj[k]) for k in sorted(obj.keys())}
+            return obj
+
+        sorted_data = [sort_dict(block) for block in block_data]
+        json_str = json.dumps(sorted_data, sort_keys=True, separators=(',', ':'))
+        return hashlib.sha256(json_str.encode('utf-8')).hexdigest()
 
     def generate_beamer(
         self, slides: List[List[Block]], title: str = "Presentation"
@@ -734,6 +796,24 @@ class BeamerGenerator:
         slide_parts.append("")  # Empty line between slides
 
     def _generate_slide(self, blocks: List[Block]) -> str:
+        """Generate LaTeX for a single slide with caching."""
+        # Generate hash for this slide
+        cache_hash = self._hash_blocks(blocks)
+
+        # Check cache first
+        cache = self._load_cache()
+        if cache_hash in cache:
+            return cache[cache_hash]
+
+        # Cache miss - generate the slide
+        latex_source = self._generate_slide_uncached(blocks)
+
+        # Save to cache
+        self._save_to_cache(cache_hash, latex_source)
+
+        return latex_source
+
+    def _generate_slide_uncached(self, blocks: List[Block]) -> str:
         """Generate LaTeX for a single slide."""
         slide_parts = []
         slide_title = ""
