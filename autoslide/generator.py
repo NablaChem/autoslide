@@ -317,10 +317,10 @@ class BeamerGenerator:
         # Add email and web with icon processing
         contact_parts = []
         if email:
-            processed_email = icons.process_heading_icons(email)
+            processed_email = icons.process_heading_icons(email, self.output_dir)
             contact_parts.append(processed_email)
         if web:
-            processed_web = icons.process_heading_icons(web)
+            processed_web = icons.process_heading_icons(web, self.output_dir)
             contact_parts.append(processed_web)
 
         if contact_parts:

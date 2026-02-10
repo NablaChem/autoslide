@@ -37,7 +37,9 @@ def generate_svg_icon(icon_name: str, output_dir: str = ".") -> str:
 
     # Destination PDF path in output directory
     local_pdf_filename = f"{icon_name}-light.pdf"
-    local_pdf_path = os.path.join(output_dir, local_pdf_filename)
+    # Convert output_dir to absolute path to ensure PDFs are created in the right place
+    abs_output_dir = os.path.abspath(output_dir)
+    local_pdf_path = os.path.join(abs_output_dir, local_pdf_filename)
 
     # Convert SVG to PDF if it doesn't exist or source is newer
     if not os.path.exists(local_pdf_path) or source_is_newer(

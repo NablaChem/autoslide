@@ -1,6 +1,8 @@
 import sys
 import os
 import click
+import subprocess
+import shutil
 
 from .parser import MarkdownBeamerParser
 from .generator import BeamerGenerator
@@ -39,6 +41,34 @@ def main(markdown_file):
         f.write(latex_output)
 
     print(f"Generated {output_file}", file=sys.stderr)
+
+    # Compile LaTeX to PDF using latexmk
+    print(f"Compiling LaTeX to PDF...", file=sys.stderr)
+    try:
+        result = subprocess.run(
+            ["latexmk", "-xelatex", "-interaction=nonstopmode", f"{base_name}.tex"],
+            cwd=output_dir,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        print(f"LaTeX compilation successful", file=sys.stderr)
+    except subprocess.CalledProcessError as e:
+        print(f"LaTeX compilation failed: {e}", file=sys.stderr)
+        print(f"stdout: {e.stdout}", file=sys.stderr)
+        print(f"stderr: {e.stderr}", file=sys.stderr)
+        return
+
+    # Copy PDF back to original directory
+    pdf_source = os.path.join(output_dir, f"{base_name}.pdf")
+    markdown_dir = os.path.dirname(os.path.abspath(markdown_file))
+    pdf_destination = os.path.join(markdown_dir, f"{base_name}.pdf")
+
+    if os.path.exists(pdf_source):
+        shutil.copy2(pdf_source, pdf_destination)
+        print(f"PDF copied to {pdf_destination}", file=sys.stderr)
+    else:
+        print(f"PDF file not found at {pdf_source}", file=sys.stderr)
 
 
 if __name__ == "__main__":
