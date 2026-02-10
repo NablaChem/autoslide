@@ -1037,7 +1037,7 @@ class BeamerGenerator:
     def _format_block(self, block: Block, has_columns: bool = False) -> str:
         """Format a single block based on its type."""
         if block.type == BlockType.ANNOTATED_EQUATION:
-            return self._format_annotated_equation(block)
+            return self._format_annotated_equation(block, has_columns)
         elif block.type == BlockType.TABLE:
             return self._format_table(block.content)
         elif block.type == BlockType.LIST:
@@ -1051,7 +1051,7 @@ class BeamerGenerator:
         else:
             return block.content
 
-    def _format_annotated_equation(self, block: Block) -> str:
+    def _format_annotated_equation(self, block: Block, has_columns: bool = False) -> str:
         """Format an annotated equation with tikzmarknode annotations."""
         equation = block.metadata["equation"]
         annotations = block.metadata["annotations"]
@@ -1098,7 +1098,7 @@ class BeamerGenerator:
 
         # Determine optimal placement for annotations
         above_placements, below_placements = self._determine_annotation_placement(
-            annotated_equation, annotation_specs, node_names
+            annotated_equation, annotation_specs, node_names, has_columns
         )
 
         # Convert placements to old format for existing tikzpicture generation
@@ -1228,6 +1228,7 @@ class BeamerGenerator:
         equation_with_nodes: str,
         annotation_specs: List[Tuple[str, str]],
         node_names: Dict[int, str],
+        has_columns: bool = False,
     ) -> Tuple[Dict[int, Tuple[float, str]], Dict[int, Tuple[float, str]]]:
         """Determine optimal placement for annotations using bounding box analysis.
 
@@ -1245,7 +1246,13 @@ class BeamerGenerator:
             return {}, {}
 
         # Configuration - all values in pt (points)
-        PAGE_WIDTH_PT = 455.0  # Page width in points
+        BASE_WIDTH_PT = 455.0  # Full page width in points
+        if has_columns:
+            # Double column: subtract margin and halve
+            PAGE_WIDTH_PT = (BASE_WIDTH_PT - 20.0) / 2.0  # ~217.5 points per column
+            print(f"DEBUG: Double column mode - PAGE_WIDTH_PT = {PAGE_WIDTH_PT}", file=sys.stderr)
+        else:
+            PAGE_WIDTH_PT = BASE_WIDTH_PT  # Full width for single column
         HORIZONTAL_PADDING_PT = 10.0  # Clearance around annotations in points
 
         # Step 1: Measure bounding boxes and node positions using LaTeX
@@ -1278,9 +1285,11 @@ class BeamerGenerator:
             node_shifts,
         )
 
-        # print(f"Debug: Measured node positions: {node_positions}", file=sys.stderr)
-        # print(f"Debug: Final above_placements: {above_placements}", file=sys.stderr)
-        # print(f"Debug: Final below_placements: {below_placements}", file=sys.stderr)
+        if has_columns:
+            print(f"DEBUG: Measured node positions: {node_positions}", file=sys.stderr)
+            print(f"DEBUG: Bounding boxes: {bounding_boxes}", file=sys.stderr)
+            print(f"DEBUG: Final above_placements: {above_placements}", file=sys.stderr)
+            print(f"DEBUG: Final below_placements: {below_placements}", file=sys.stderr)
         return above_placements, below_placements
 
     def _measure_annotation_bounding_boxes(
@@ -1750,9 +1759,9 @@ class BeamerGenerator:
 
             # Check if any annotation extends beyond page boundaries
             for i, left_bound, right_bound, anchor, width in annotations:
-                if left_bound < 20 or right_bound > page_width_pt - 50:
+                if left_bound < 20 or right_bound > page_width_pt:
                     print(
-                        f"Debug: Annotation {i} extends beyond page bounds: [{left_bound:.2f}, {right_bound:.2f}]pt",
+                        f"DEBUG: Annotation {i} extends beyond page bounds: [{left_bound:.2f}, {right_bound:.2f}]pt (page_width={page_width_pt:.2f}pt)",
                         file=sys.stderr,
                     )
                     return False
