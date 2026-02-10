@@ -1,7 +1,7 @@
 from .models import Block
 
 
-def format_image(block: Block, has_columns: bool = False) -> str:
+def format_image(block: Block, has_columns: bool = False, output_dir: str = ".") -> str:
     """Format image block with auto-scaling and plain grey caption."""
     image_file = block.content
     caption = block.metadata.get("caption", "")

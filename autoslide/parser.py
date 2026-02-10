@@ -9,13 +9,14 @@ from . import figures
 
 
 class MarkdownBeamerParser:
-    def __init__(self, input_filename=None):
+    def __init__(self, input_filename=None, output_dir="."):
         self.blocks = []
         self.footnotes = {}
         self.current_slide_blocks = []
         self.slides = []
         self.figure_counter = 0
         self.input_filename = input_filename
+        self.output_dir = output_dir
         self.pending_figures = []  # Store figure info for later generation
 
     def parse(self, markdown_text: str) -> List[List[Block]]:
@@ -291,6 +292,7 @@ class MarkdownBeamerParser:
                 figure_info["block_type"],
                 figure_info["filename"],
                 has_columns,
+                self.output_dir,
             )
 
 

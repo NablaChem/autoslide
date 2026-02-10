@@ -3,7 +3,7 @@ import sys
 import re
 
 
-def process_heading_icons(heading_text: str) -> str:
+def process_heading_icons(heading_text: str, output_dir: str = ".") -> str:
     """Process heading text to replace :icon_name: with rendered SVG icons."""
     # First handle special icon mappings
     heading_text = heading_text.replace(":email:", ":envelope:")
@@ -14,12 +14,12 @@ def process_heading_icons(heading_text: str) -> str:
 
     def replace_icon(match):
         icon_name = match.group(1)
-        return generate_svg_icon(icon_name)
+        return generate_svg_icon(icon_name, output_dir)
 
     return re.sub(icon_pattern, replace_icon, heading_text)
 
 
-def generate_svg_icon(icon_name: str) -> str:
+def generate_svg_icon(icon_name: str, output_dir: str = ".") -> str:
     """Generate LaTeX code for an SVG icon with colored circle background."""
     import os
 
@@ -35,9 +35,9 @@ def generate_svg_icon(icon_name: str) -> str:
         # If icon doesn't exist, return the original text or a placeholder
         return f":{icon_name}:"
 
-    # Destination PDF path in current working directory
+    # Destination PDF path in output directory
     local_pdf_filename = f"{icon_name}-light.pdf"
-    local_pdf_path = os.path.join(os.getcwd(), local_pdf_filename)
+    local_pdf_path = os.path.join(output_dir, local_pdf_filename)
 
     # Convert SVG to PDF if it doesn't exist or source is newer
     if not os.path.exists(local_pdf_path) or source_is_newer(

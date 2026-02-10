@@ -15,7 +15,7 @@ from typing import List, Dict, Tuple
 from .models import Block
 
 
-def format_annotated_equation(block: Block, has_columns: bool = False, node_counter: int = 0) -> Tuple[str, int]:
+def format_annotated_equation(block: Block, has_columns: bool = False, node_counter: int = 0, output_dir: str = ".") -> Tuple[str, int]:
     """Format an annotated equation with tikzmarknode annotations."""
     equation = block.metadata["equation"]
     annotations = block.metadata["annotations"]
@@ -62,7 +62,7 @@ def format_annotated_equation(block: Block, has_columns: bool = False, node_coun
 
     # Determine optimal placement for annotations
     above_placements, below_placements = determine_annotation_placement(
-        annotated_equation, annotation_specs, node_names, has_columns, node_counter
+        annotated_equation, annotation_specs, node_names, has_columns, node_counter, output_dir
     )
 
     # Convert placements to old format for existing tikzpicture generation
@@ -195,6 +195,7 @@ def determine_annotation_placement(
     node_names: Dict[int, str],
     has_columns: bool = False,
     node_counter: int = 0,
+    output_dir: str = ".",
 ) -> Tuple[Dict[int, Tuple[float, str]], Dict[int, Tuple[float, str]]]:
     """Determine optimal placement for annotations using bounding box analysis.
 
@@ -225,7 +226,7 @@ def determine_annotation_placement(
     try:
         bounding_boxes, node_positions, node_shifts = (
             measure_annotation_bounding_boxes(
-                equation_with_nodes, annotation_specs, node_names, node_counter
+                equation_with_nodes, annotation_specs, node_names, node_counter, output_dir
             )
         )
     except Exception as e:
@@ -264,6 +265,7 @@ def measure_annotation_bounding_boxes(
     annotation_specs: List[Tuple[str, str]],
     node_names: Dict[int, str],
     node_counter: int,
+    output_dir: str = ".",
 ) -> Tuple[Dict[int, Tuple[float, float]], Dict[int, float], Dict[int, float]]:
     """Measure bounding boxes of annotation text and tikzmarknode positions using LaTeX.
 
@@ -279,8 +281,8 @@ def measure_annotation_bounding_boxes(
     import re
     import shutil
 
-    # Create a temporary directory for LaTeX compilation
-    temp_dir = tempfile.mkdtemp()
+    # Create a temporary directory for LaTeX compilation within the output directory
+    temp_dir = tempfile.mkdtemp(dir=output_dir)
 
     try:
         # Create a temporary LaTeX document to measure all annotations

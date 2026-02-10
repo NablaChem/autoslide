@@ -20,10 +20,11 @@ from . import document, text, tables, lists, images, icons, equations
 
 
 class BeamerGenerator:
-    def __init__(self):
+    def __init__(self, output_dir="."):
         self.footnote_counter = 0
         self.node_counter = 0
-        self.cache_file = ".autoslide.cache"
+        self.output_dir = output_dir
+        self.cache_file = os.path.join(output_dir, ".autoslide.cache")
         self._slide_cache = None
 
     def _load_cache(self) -> Dict[str, str]:
@@ -412,15 +413,15 @@ class BeamerGenerator:
         """Format a single block based on its type."""
         if block.type == BlockType.ANNOTATED_EQUATION:
             latex_output, self.node_counter = equations.format_annotated_equation(
-                block, has_columns, self.node_counter
+                block, has_columns, self.node_counter, self.output_dir
             )
             return latex_output
         elif block.type == BlockType.TABLE:
             return tables.format_table(block.content)
         elif block.type == BlockType.LIST:
-            return lists.format_list(block.content, icons.process_heading_icons)
+            return lists.format_list(block.content, lambda x: icons.process_heading_icons(x, self.output_dir))
         elif block.type == BlockType.IMAGE:
-            return images.format_image(block, has_columns)
+            return images.format_image(block, has_columns, self.output_dir)
         elif block.type == BlockType.FOOTNOTE:
             return f"\\footnote[{block.metadata['number']}]{{{block.content}}}"
         elif block.type == BlockType.TEXT:

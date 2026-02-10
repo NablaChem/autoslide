@@ -5,10 +5,10 @@ from .models import BlockType
 
 
 def generate_figure_file(
-    code: str, block_type: BlockType, filename: str, has_columns: bool = False
+    code: str, block_type: BlockType, filename: str, has_columns: bool = False, output_dir: str = "."
 ):
     """Generate a single figure file with the specified parameters."""
-    # Create Python script for subplot execution
+    # Create Python script for subplot execution (filename relative to output_dir)
     python_script = create_matplotlib_script(
         code, block_type, filename, has_columns
     )
@@ -26,7 +26,7 @@ def generate_figure_file(
             ["python", temp_script_path],
             capture_output=True,
             text=True,
-            cwd=os.getcwd(),
+            cwd=output_dir,
         )
 
         if result.returncode != 0:
