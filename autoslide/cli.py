@@ -10,7 +10,8 @@ from .generator import BeamerGenerator
 
 @click.command()
 @click.argument("markdown_file", type=click.Path(exists=True, readable=True))
-def main(markdown_file):
+@click.option("--no-cache", is_flag=True, help="Disable reading from cache (writing to cache still enabled)")
+def main(markdown_file, no_cache):
     """Convert markdown file to LaTeX beamer presentation."""
 
     # Create output directory based on input filename
@@ -33,7 +34,7 @@ def main(markdown_file):
 
     print(f"Parsed {len(slides)} slides", file=sys.stderr)
 
-    generator = BeamerGenerator(output_dir)
+    generator = BeamerGenerator(output_dir, no_cache=no_cache)
     latex_output = generator.generate_beamer(slides, "My Presentation")
 
     # Write output to file

@@ -20,12 +20,13 @@ from . import document, text, tables, lists, images, icons, equations
 
 
 class BeamerGenerator:
-    def __init__(self, output_dir="."):
+    def __init__(self, output_dir=".", no_cache=False):
         self.footnote_counter = 0
         self.node_counter = 0
         self.output_dir = output_dir
         self.cache_file = os.path.join(output_dir, ".autoslide.cache")
         self._slide_cache = None
+        self.no_cache = no_cache
 
     def _load_cache(self) -> Dict[str, str]:
         """Load slide cache from disk. Returns empty dict if cache doesn't exist or is corrupted."""
@@ -33,6 +34,11 @@ class BeamerGenerator:
             return self._slide_cache
 
         self._slide_cache = {}
+
+        # If no_cache is enabled, return empty cache (don't read from file)
+        if self.no_cache:
+            return self._slide_cache
+
         if not os.path.exists(self.cache_file):
             return self._slide_cache
 
