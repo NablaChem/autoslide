@@ -95,8 +95,7 @@ def convert_svg_to_pdf(svg_path: str, pdf_path: str, color: str) -> None:
         cairosvg.svg2pdf(bytestring=svg_content.encode("utf-8"), write_to=pdf_path)
 
     except ImportError:
-        # Fallback to reportlab if cairosvg not available
-        convert_svg_to_pdf_reportlab(svg_path, pdf_path, color)
+        raise ImportError("cairosvg is required for SVG to PDF conversion")
 
 
 def apply_color_to_svg(svg_content: str, color: str) -> str:
@@ -121,20 +120,3 @@ def apply_color_to_svg(svg_content: str, color: str) -> str:
     return svg_content
 
 
-def convert_svg_to_pdf_reportlab(
-    svg_path: str, pdf_path: str, color: str
-) -> None:
-    """Fallback SVG to PDF conversion using reportlab."""
-    try:
-        from reportlab.graphics import renderPDF
-        from reportlab.graphics.shapes import Drawing
-        from reportlab.lib.colors import HexColor
-        from svglib.svglib import renderSVG
-
-        # This is a more complex fallback - for now, raise an error to indicate cairosvg is needed
-        raise ImportError("cairosvg is required for SVG to PDF conversion")
-
-    except ImportError:
-        raise ImportError(
-            "Either cairosvg or reportlab+svglib is required for SVG to PDF conversion"
-        )
