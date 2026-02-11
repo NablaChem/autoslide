@@ -217,7 +217,6 @@ def determine_annotation_placement(
     if has_columns:
         # Double column: subtract margin and halve
         PAGE_WIDTH_PT = (BASE_WIDTH_PT - 20.0) / 2.0  # ~217.5 points per column
-        print(f"DEBUG: Double column mode - PAGE_WIDTH_PT = {PAGE_WIDTH_PT}", file=sys.stderr)
     else:
         PAGE_WIDTH_PT = BASE_WIDTH_PT  # Full width for single column
     HORIZONTAL_PADDING_PT = 10.0  # Clearance around annotations in points
@@ -226,7 +225,7 @@ def determine_annotation_placement(
     try:
         bounding_boxes, node_positions, node_shifts = (
             measure_annotation_bounding_boxes(
-                equation_with_nodes, annotation_specs, node_names, node_counter, output_dir
+                equation_with_nodes, annotation_specs, node_names, node_counter, output_dir, has_columns
             )
         )
     except Exception as e:
@@ -250,13 +249,9 @@ def determine_annotation_placement(
         PAGE_WIDTH_PT,
         HORIZONTAL_PADDING_PT,
         node_shifts,
+        has_columns,
     )
 
-    if has_columns:
-        print(f"DEBUG: Measured node positions: {node_positions}", file=sys.stderr)
-        print(f"DEBUG: Bounding boxes: {bounding_boxes}", file=sys.stderr)
-        print(f"DEBUG: Final above_placements: {above_placements}", file=sys.stderr)
-        print(f"DEBUG: Final below_placements: {below_placements}", file=sys.stderr)
     return above_placements, below_placements
 
 
@@ -266,6 +261,7 @@ def measure_annotation_bounding_boxes(
     node_names: Dict[int, str],
     node_counter: int,
     output_dir: str = ".",
+    has_columns: bool = False,
 ) -> Tuple[Dict[int, Tuple[float, float]], Dict[int, float], Dict[int, float]]:
     """Measure bounding boxes of annotation text and tikzmarknode positions using LaTeX.
 
@@ -287,7 +283,7 @@ def measure_annotation_bounding_boxes(
     try:
         # Create a temporary LaTeX document to measure all annotations
         measurement_latex, updated_node_counter = create_measurement_document(
-            equation_with_nodes, annotation_specs, node_names, node_counter
+            equation_with_nodes, annotation_specs, node_names, node_counter, has_columns
         )
 
         # Write to temporary file in the temporary directory
@@ -341,6 +337,7 @@ def create_measurement_document(
     annotation_specs: List[Tuple[str, str]],
     node_names: Dict[int, str],
     node_counter: int,
+    has_columns: bool = False,
 ) -> Tuple[str, int]:
     """Create LaTeX document for measuring annotation bounding boxes."""
     # Use exactly the same preamble as the main document
@@ -409,6 +406,16 @@ def create_measurement_document(
 \newlength{\tempx}
 \begin{frame}[t]
 \scriptsize
+"""
+
+    # Add column setup if needed
+    if has_columns:
+        preamble += r"""
+% Set up two-column environment to match actual rendering context
+\begin{columns}[t]
+\column{0.48\textwidth}
+% Content goes in right column to match typical equation placement
+\column{0.48\textwidth}
 """
 
     # Add the equation with tikzmarknode wrappers to measure node positions
@@ -492,9 +499,15 @@ def create_measurement_document(
     # Combine all measurements: equation first, then text measurements, then position measurements
     measurement_commands.extend(position_measurements)
 
+    # Close column environment if needed
+    column_close = ""
+    if has_columns:
+        column_close = "\n\\end{columns}"
+
     document = (
         preamble
         + "\n".join(measurement_commands)
+        + column_close
         + "\n\\end{frame}\n\\end{document}"
     )
     return document, node_counter
@@ -569,6 +582,7 @@ def find_optimal_placement(
     page_width_pt: float,
     horizontal_padding_pt: float,
     node_shifts: Dict[int, float],
+    has_columns: bool = False,
 ) -> Tuple[Dict[int, Tuple[float, str]], Dict[int, Tuple[float, str]]]:
     """Find optimal placement using brute force search with minimal vertical levels."""
     from itertools import product
@@ -605,6 +619,7 @@ def find_optimal_placement(
                 page_width_pt,
                 horizontal_padding_pt,
                 node_shifts,
+                has_columns,
             ):
                 # Found valid placement with num_levels levels
                 above_placements = {}
@@ -672,6 +687,7 @@ def check_placement_validity(
     page_width_pt: float,
     horizontal_padding_pt: float,
     node_shifts: Dict[int, float],
+    has_columns: bool = False,
 ) -> bool:
     """Check if a placement combination is valid (no overlaps, fits in page width)."""
     # Group annotations by position and level for collision detection
@@ -730,14 +746,11 @@ def check_placement_validity(
                 return False
 
         # Check if any annotation extends beyond page boundaries
+        # In two-column mode, use smaller left margin since we're within a column
+        left_margin = 5.0 if has_columns else 20.0
         for i, left_bound, right_bound, anchor, width in annotations:
-            if left_bound < 20 or right_bound > page_width_pt:
-                print(
-                    f"DEBUG: Annotation {i} extends beyond page bounds: [{left_bound:.2f}, {right_bound:.2f}]pt (page_width={page_width_pt:.2f}pt)",
-                    file=sys.stderr,
-                )
+            if left_bound < left_margin or right_bound > page_width_pt:
                 return False
-    print("no overlaps within levels", file=sys.stderr)
 
     # Check for vertical line crossings: text boxes crossing through vertical lines from other levels
     for (position_1, level_1), annotations_1 in placements_by_level.items():
@@ -771,8 +784,6 @@ def check_placement_validity(
                             and ann_1_right > vertical_line_x - clearance
                         ):
                             return False
-    print(placements_by_level, file=sys.stderr)
-    print(f"Debug: Placement accepted - no overlaps detected", file=sys.stderr)
     return True
 
 
