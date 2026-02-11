@@ -145,35 +145,33 @@ class BeamerGenerator:
     ) -> bool:
         """Process blocks for slide content with section-aware column handling."""
         sections = self._split_blocks_into_sections(blocks)
-        current_layout = None
 
-        for section in sections:
+        for i, section in enumerate(sections):
             # Skip empty sections
             if not section:
                 continue
 
             section_has_columns = self._section_has_columns(section)
 
-            # Only change layout if it's different from current
-            if current_layout != section_has_columns:
-                if current_layout is not None:
-                    # End current column and columns environment
-                    slide_parts.append("\\end{column}")
-                    slide_parts.append("\\end{columns}")
-                    # Add 1em vertical space before new columns environment
-                    slide_parts.append("\\vspace{1em}")
+            # End previous section's columns environment if this isn't the first section
+            if i > 0:
+                slide_parts.append("\\end{column}")
+                slide_parts.append("\\end{columns}")
+                slide_parts.append("\\vspace{1em}")
 
-                # Start new columns environment
-                slide_parts.append("\\begin{columns}[t]")
-                if section_has_columns:
-                    slide_parts.append("\\begin{column}[t]{0.484\\textwidth}")
-                else:
-                    slide_parts.append("\\begin{column}[t]{\\textwidth}")
-
-                current_layout = section_has_columns
+            # Start new columns environment for this section
+            slide_parts.append("\\begin{columns}[t]")
+            if section_has_columns:
+                slide_parts.append("\\begin{column}[t]{0.484\\textwidth}")
+            else:
+                slide_parts.append("\\begin{column}[t]{\\textwidth}")
 
             # Process blocks in this section
             self._process_section_blocks(section, slide_parts, section_has_columns)
+
+        # Always end the final column and columns environment
+        slide_parts.append("\\end{column}")
+        slide_parts.append("\\end{columns}")
 
         return in_columns
 
@@ -200,11 +198,7 @@ class BeamerGenerator:
                 slide_parts.append(self._format_block(block, has_columns))
 
     def _finalize_slide(self, slide_parts: List[str], footnotes: List[Block]):
-        """Finalize slide with columns ending, vfill, and footnotes."""
-        # Always end columns since we always start them
-        slide_parts.append("\\end{column}")
-        slide_parts.append("\\end{columns}")
-
+        """Finalize slide with vfill and footnotes."""
         # Add vfill to push footnotes to bottom
         slide_parts.append("")
         slide_parts.append("\\vfill")
