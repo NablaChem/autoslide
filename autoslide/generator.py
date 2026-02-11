@@ -337,9 +337,9 @@ class BeamerGenerator:
         slide_parts.append("\\begin{frame}[t]")
         slide_parts.append("\\frametitle{\\,}")
 
-        # Start minipage matching inspiration.tex layout
+        # Start minipage matching inspiration.tex layout, shifted 2em to the right
         slide_parts.append(
-            "\\vspace{-1.5em}\\hspace{-0.3em}\\begin{minipage}[t][0.88\\textheight]{\\textwidth}"
+            "\\vspace{-2.5em}\\hspace{2em}\\begin{minipage}[t][0.88\\textheight]{\\textwidth}"
         )
         slide_parts.append("")
         slide_parts.append("\\vfill")

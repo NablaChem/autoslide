@@ -41,6 +41,7 @@ def format_table(content: str) -> str:
 
     # Build LaTeX table
     latex_lines = []
+    latex_lines.append("\\begin{center}")
     latex_lines.append("\\begin{tabular}{" + "l" * max_cols + "}")
 
     for i, row in enumerate(table_rows):
@@ -73,4 +74,5 @@ def format_table(content: str) -> str:
                 latex_lines.append(" & ".join(padded_row) + " \\\\")
 
     latex_lines.append("\\end{tabular}")
+    latex_lines.append("\\end{center}")
     return "\n".join(latex_lines)
