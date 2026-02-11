@@ -131,6 +131,15 @@ class MarkdownBeamerParser:
                 i += 1
                 continue
 
+            # Check for column section break
+            if line == "---":
+                if current_block_lines:
+                    self._process_block_lines(current_block_lines)
+                    current_block_lines = []
+                self.current_slide_blocks.append(Block(BlockType.COLUMN_SECTION_BREAK, ""))
+                i += 1
+                continue
+
             # Check for footnote definition (numbered or starred)
             if re.match(r"^\[[\d\*]+\] ", line):
                 if current_block_lines:

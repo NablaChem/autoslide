@@ -15,6 +15,7 @@ class BlockType(Enum):
     FOOTLINE = "footline"
     TEXT = "text"
     COLUMN_BREAK = "column_break"
+    COLUMN_SECTION_BREAK = "column_section_break"
     PLOT = "plot"
     SCHEMATIC = "schematic"
 

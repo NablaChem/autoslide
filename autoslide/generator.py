@@ -109,10 +109,32 @@ class BeamerGenerator:
         """Setup columns environment for consistent positioning."""
         slide_parts.append("\\begin{columns}[t]")
         if has_columns:
-            slide_parts.append("\\begin{column}[t]{0.48\\textwidth}")
+            slide_parts.append("\\begin{column}[t]{0.484\\textwidth}")
         else:
             slide_parts.append("\\begin{column}[t]{\\textwidth}")
         return True
+
+    def _split_blocks_into_sections(self, blocks: List[Block]) -> List[List[Block]]:
+        """Split blocks into sections separated by COLUMN_SECTION_BREAK."""
+        sections = []
+        current_section = []
+
+        for block in blocks:
+            if block.type == BlockType.COLUMN_SECTION_BREAK:
+                # End current section and start new one
+                sections.append(current_section)
+                current_section = []
+            else:
+                current_section.append(block)
+
+        # Add final section
+        sections.append(current_section)
+
+        return sections
+
+    def _section_has_columns(self, section_blocks: List[Block]) -> bool:
+        """Check if a section has column breaks."""
+        return any(block.type == BlockType.COLUMN_BREAK for block in section_blocks)
 
     def _process_slide_blocks(
         self,
@@ -121,7 +143,47 @@ class BeamerGenerator:
         in_columns: bool,
         has_columns: bool = False,
     ) -> bool:
-        """Process blocks for slide content."""
+        """Process blocks for slide content with section-aware column handling."""
+        sections = self._split_blocks_into_sections(blocks)
+        current_layout = None
+
+        for section in sections:
+            # Skip empty sections
+            if not section:
+                continue
+
+            section_has_columns = self._section_has_columns(section)
+
+            # Only change layout if it's different from current
+            if current_layout != section_has_columns:
+                if current_layout is not None:
+                    # End current column and columns environment
+                    slide_parts.append("\\end{column}")
+                    slide_parts.append("\\end{columns}")
+                    # Add 1em vertical space before new columns environment
+                    slide_parts.append("\\vspace{1em}")
+
+                # Start new columns environment
+                slide_parts.append("\\begin{columns}[t]")
+                if section_has_columns:
+                    slide_parts.append("\\begin{column}[t]{0.484\\textwidth}")
+                else:
+                    slide_parts.append("\\begin{column}[t]{\\textwidth}")
+
+                current_layout = section_has_columns
+
+            # Process blocks in this section
+            self._process_section_blocks(section, slide_parts, section_has_columns)
+
+        return in_columns
+
+    def _process_section_blocks(
+        self,
+        blocks: List[Block],
+        slide_parts: List[str],
+        has_columns: bool,
+    ) -> None:
+        """Process blocks within a single section."""
         for block in blocks:
             if block.type in [
                 BlockType.SLIDE_TITLE,
@@ -133,10 +195,9 @@ class BeamerGenerator:
                 slide_parts.append(f"\\section{{{block.content}}}")
             elif block.type == BlockType.COLUMN_BREAK:
                 slide_parts.append("\\end{column}")
-                slide_parts.append("\\begin{column}[t]{0.48\\textwidth}")
+                slide_parts.append("\\begin{column}[t]{0.484\\textwidth}")
             else:
                 slide_parts.append(self._format_block(block, has_columns))
-        return in_columns
 
     def _finalize_slide(self, slide_parts: List[str], footnotes: List[Block]):
         """Finalize slide with columns ending, vfill, and footnotes."""
@@ -185,7 +246,6 @@ class BeamerGenerator:
         slide_parts = []
         slide_title = ""
         slide_metadata = {}
-        has_columns = any(block.type == BlockType.COLUMN_BREAK for block in blocks)
         footline_content = ""
         footnotes = []
 
@@ -230,11 +290,8 @@ class BeamerGenerator:
             "\\vspace{-1.5em}\\begin{minipage}[t][0.88\\textheight]{\\textwidth}"
         )
 
-        # Setup columns and process blocks
-        in_columns = self._setup_slide_columns(slide_parts, has_columns)
-        in_columns = self._process_slide_blocks(
-            blocks, slide_parts, in_columns, has_columns
-        )
+        # Process blocks with section-aware column handling
+        in_columns = self._process_slide_blocks(blocks, slide_parts, True)
 
         # Finalize slide
         self._finalize_slide(slide_parts, footnotes)
@@ -360,7 +417,6 @@ class BeamerGenerator:
     ) -> str:
         """Generate a section summary slide with orange title bar."""
         slide_parts = []
-        has_columns = any(block.type == BlockType.COLUMN_BREAK for block in blocks)
         footnotes = []
 
         # Extract footnotes
@@ -387,11 +443,8 @@ class BeamerGenerator:
             "\\vspace{-1.5em}\\hspace{-0.3em}\\begin{minipage}[t][0.88\\textheight]{\\textwidth}"
         )
 
-        # Setup columns and process blocks
-        in_columns = self._setup_slide_columns(slide_parts, has_columns)
-        in_columns = self._process_slide_blocks(
-            blocks, slide_parts, in_columns, has_columns
-        )
+        # Process blocks with section-aware column handling
+        in_columns = self._process_slide_blocks(blocks, slide_parts, True)
 
         # Finalize slide
         self._finalize_slide(slide_parts, footnotes)
