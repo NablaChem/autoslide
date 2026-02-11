@@ -37,12 +37,12 @@ class BeamerGenerator:
             return self._slide_cache
 
         try:
-            with open(self.cache_file, 'r', encoding='utf-8') as f:
+            with open(self.cache_file, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line:
                         entry = json.loads(line)
-                        self._slide_cache[entry['hash']] = entry['latex_source']
+                        self._slide_cache[entry["hash"]] = entry["latex_source"]
         except (json.JSONDecodeError, KeyError, OSError):
             # Corrupted cache - drop everything and start fresh
             self._slide_cache = {}
@@ -52,9 +52,9 @@ class BeamerGenerator:
     def _save_to_cache(self, cache_hash: str, latex_source: str) -> None:
         """Save a cache entry to disk."""
         try:
-            with open(self.cache_file, 'a', encoding='utf-8') as f:
-                entry = {'hash': cache_hash, 'latex_source': latex_source}
-                f.write(json.dumps(entry) + '\n')
+            with open(self.cache_file, "a", encoding="utf-8") as f:
+                entry = {"hash": cache_hash, "latex_source": latex_source}
+                f.write(json.dumps(entry) + "\n")
             # Update in-memory cache
             if self._slide_cache is None:
                 self._slide_cache = {}
@@ -69,9 +69,9 @@ class BeamerGenerator:
         block_data = []
         for block in blocks:
             block_dict = {
-                'type': block.type.value,
-                'content': block.content,
-                'metadata': block.metadata or {}
+                "type": block.type.value,
+                "content": block.content,
+                "metadata": block.metadata or {},
             }
             block_data.append(block_dict)
 
@@ -82,8 +82,8 @@ class BeamerGenerator:
             return obj
 
         sorted_data = [sort_dict(block) for block in block_data]
-        json_str = json.dumps(sorted_data, sort_keys=True, separators=(',', ':'))
-        return hashlib.sha256(json_str.encode('utf-8')).hexdigest()
+        json_str = json.dumps(sorted_data, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(json_str.encode("utf-8")).hexdigest()
 
     def generate_beamer(
         self, slides: List[List[Block]], title: str = "Presentation"
@@ -109,13 +109,10 @@ class BeamerGenerator:
         """Setup columns environment for consistent positioning."""
         slide_parts.append("\\begin{columns}[t]")
         if has_columns:
-            slide_parts.append("\\begin{column}[t]{0.5\\textwidth}")
-            return True
+            slide_parts.append("\\begin{column}[t]{0.48\\textwidth}")
         else:
-            # For single column, use full width and shift 2em left
-            slide_parts.append("\\hspace{0.3em}")
-            slide_parts.append("\\begin{column}[t]{1.07\\textwidth}")
-            return True
+            slide_parts.append("\\begin{column}[t]{\\textwidth}")
+        return True
 
     def _process_slide_blocks(
         self,
@@ -135,13 +132,8 @@ class BeamerGenerator:
             elif block.type == BlockType.SECTION:
                 slide_parts.append(f"\\section{{{block.content}}}")
             elif block.type == BlockType.COLUMN_BREAK:
-                if in_columns:
-                    slide_parts.append("\\end{column}")
-                    slide_parts.append("\\begin{column}[t]{0.5\\textwidth}")
-                else:
-                    slide_parts.append("\\begin{columns}[t]")
-                    slide_parts.append("\\begin{column}[t]{0.5\\textwidth}")
-                    in_columns = True
+                slide_parts.append("\\end{column}")
+                slide_parts.append("\\begin{column}[t]{0.48\\textwidth}")
             else:
                 slide_parts.append(self._format_block(block, has_columns))
         return in_columns
@@ -160,7 +152,7 @@ class BeamerGenerator:
         # Add fake footnotes if any exist
         if footnotes:
             slide_parts.append(
-                "\\hspace*{-2em}\\parbox[t]{0.95\\paperwidth}{"
+                "\\parbox[t]{0.95\\paperwidth}{"
                 + self._format_fake_footnotes(footnotes)
                 + "}"
             )
@@ -235,7 +227,7 @@ class BeamerGenerator:
 
         # Start minipage for content
         slide_parts.append(
-            "\\vspace{-1.5em}\\hspace{-0.3em}\\begin{minipage}[t][0.88\\textheight]{\\textwidth}"
+            "\\vspace{-1.5em}\\begin{minipage}[t][0.88\\textheight]{\\textwidth}"
         )
 
         # Setup columns and process blocks
@@ -419,7 +411,9 @@ class BeamerGenerator:
         elif block.type == BlockType.TABLE:
             return tables.format_table(block.content)
         elif block.type == BlockType.LIST:
-            return lists.format_list(block.content, lambda x: icons.process_heading_icons(x, self.output_dir))
+            return lists.format_list(
+                block.content, lambda x: icons.process_heading_icons(x, self.output_dir)
+            )
         elif block.type == BlockType.IMAGE:
             return images.format_image(block, has_columns, self.output_dir)
         elif block.type == BlockType.FOOTNOTE:

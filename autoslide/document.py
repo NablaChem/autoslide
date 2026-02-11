@@ -17,7 +17,11 @@ def generate_header(title: str) -> str:
 \definecolor{navyblue}{RGB}{10,45,100}
 \definecolor{ncorange}{RGB}{221,150,51}
 \definecolor{ncblue}{RGB}{10,45,100}
-
+\setbeamersize
+{
+    text margin left=0.48cm,
+    text margin right=0.48cm
+}
 \usepackage[para]{footmisc}
 \setbeamercolor{section title}{fg=navyblue}
 \setbeamerfont{section title}{series=\bfseries}
