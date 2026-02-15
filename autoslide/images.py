@@ -29,8 +29,16 @@ def format_image(block: Block, has_columns: bool = False, output_dir: str = ".")
     width_setting = f"width={width_limit * scale_factor}\\linewidth"
     height_setting = f"height={height_limit * scale_factor}\\textheight"
 
+    # Determine image path based on whether it's generated or from assets
+    if block.metadata.get("generated", False):
+        # Generated figure - same directory as .tex file
+        image_path = image_file
+    else:
+        # Regular asset image - in ../assets/ directory
+        image_path = f"../assets/{image_file}"
+
     return f"""\\begin{{center}}
-\\includegraphics[{width_setting},{height_setting},keepaspectratio]{{{image_file}}}
+\\includegraphics[{width_setting},{height_setting},keepaspectratio]{{{image_path}}}
 \\end{{center}}
 \\vspace{{-1em}}
 \\textcolor{{gray}}{{{caption}}}"""
