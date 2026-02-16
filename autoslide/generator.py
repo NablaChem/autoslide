@@ -422,8 +422,8 @@ class BeamerGenerator:
             if block.type == BlockType.FOOTNOTE:
                 footnotes.append(block)
 
-        # Set blue color before frame begins
-        slide_parts.append("\\setbeamercolor{frametitle}{bg=ncblue, fg=white}")
+        # Set orange color for summary slides
+        slide_parts.append("\\setbeamercolor{frametitle}{bg=ncorange, fg=white}")
 
         # Start normal frame with [t] option for top alignment
         frame_options = "[t]"

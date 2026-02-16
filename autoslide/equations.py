@@ -359,9 +359,9 @@ def create_measurement_document(
 
 \setbeamercolor{frametitle}{bg=ncblue, fg=white}
 \setbeamertemplate{navigation symbols}{}
-\setbeamertemplate{itemize item}{\textcolor{navyblue}{\textendash}}
-\setbeamertemplate{itemize subitem}{\textcolor{navyblue}{\textendash}}
-\setbeamertemplate{itemize subsubitem}{\textcolor{navyblue}{\textendash}}
+\setbeamertemplate{itemize item}{\textcolor{ncblue}{\textendash}}
+\setbeamertemplate{itemize subitem}{\textcolor{ncblue}{\textendash}}
+\setbeamertemplate{itemize subsubitem}{\textcolor{ncblue}{\textendash}}
 \setlength{\leftmargini}{1em}
 \setlength{\leftmarginii}{2em}
 \setlength{\leftmarginiii}{3em}

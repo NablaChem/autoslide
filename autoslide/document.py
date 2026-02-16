@@ -21,8 +21,8 @@ def generate_header(title: str) -> str:
 ]
 \setmonofont{Fira Mono}
 \usepackage{xcolor}
-\definecolor{navyblue}{RGB}{10,45,100}
-\definecolor{ncblue}{RGB}{221,150,51}
+\definecolor{ncorange}{RGB}{221,150,51}
+\definecolor{navyblue}{RGB}{221,150,51}
 \definecolor{ncblue}{RGB}{10,45,100}
 \setbeamersize
 {
@@ -37,9 +37,9 @@ def generate_header(title: str) -> str:
 %\setbeamertemplate{frametitle}[default][left]
 
 \setbeamertemplate{navigation symbols}{}
-\setbeamertemplate{itemize item}{\textcolor{navyblue}{\textendash}}
-\setbeamertemplate{itemize subitem}{\textcolor{navyblue}{\textendash}}
-\setbeamertemplate{itemize subsubitem}{\textcolor{navyblue}{\textendash}}
+\setbeamertemplate{itemize item}{\textcolor{ncblue}{\textendash}}
+\setbeamertemplate{itemize subitem}{\textcolor{ncblue}{\textendash}}
+\setbeamertemplate{itemize subsubitem}{\textcolor{ncblue}{\textendash}}
 \setlength{\leftmargini}{1em}
 \setlength{\leftmarginii}{2em}
 \setlength{\leftmarginiii}{3em}
