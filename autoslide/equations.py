@@ -183,7 +183,7 @@ def create_tikzmarknode_equation_new(
         # Replace the exact string with tikzmarknode wrapper that includes background fill
         before = result[:pos]
         after = result[pos + len(exact_string) :]
-        wrapped = f"\\tikzmarknode[fill=ncorange!25,inner sep=1pt,outer sep=0pt]{{{node_name}}}{{{exact_string}\\mathstrut}}"
+        wrapped = f"\\tikzmarknode[fill=ncblue!15,inner sep=1pt,outer sep=0pt]{{{node_name}}}{{{exact_string}\\mathstrut}}"
         result = before + wrapped + after
 
     return result, node_names, node_counter
@@ -356,7 +356,7 @@ def create_measurement_document(
 ]
 \usepackage{xcolor}
 \definecolor{navyblue}{RGB}{10,45,100}
-\definecolor{ncorange}{RGB}{221,150,51}
+\definecolor{ncblue}{RGB}{221,150,51}
 \definecolor{ncblue}{RGB}{10,45,100}
 
 \usepackage[para]{footmisc}
@@ -384,9 +384,9 @@ def create_measurement_document(
   \tikzset{tikzmark prefix=frame\insertframenumber}
 }
 \usepackage{amsmath}
-\renewcommand{\theequation}{\textcolor{ncorange}{\arabic{equation}}}
+\renewcommand{\theequation}{\textcolor{ncblue}{\arabic{equation}}}
 \makeatletter
-\renewcommand{\tagform@}[1]{\maketag@@@{\textcolor{ncorange}{(#1)}}}
+\renewcommand{\tagform@}[1]{\maketag@@@{\textcolor{ncblue}{(#1)}}}
 \makeatother
 \usepackage{tikz}
 \usetikzlibrary{tikzmark,calc,positioning}
@@ -878,17 +878,17 @@ def generate_tikzpicture_annotations(
 
         tikz_parts.append(f"    %above annotation {pos}")
         tikz_parts.append(
-            f"\path[fill=ncorange!25,draw=none,line width=0pt] ({node_name}.north west) -- ({node_name}.north east) -- ([yshift=13pt]{node_name}.base east) -- ([yshift=13pt]{node_name}.base west) -- cycle;"
+            f"\path[fill=ncblue!15,draw=none,line width=0pt] ({node_name}.north west) -- ({node_name}.north east) -- ([yshift=13pt]{node_name}.base east) -- ([yshift=13pt]{node_name}.base west) -- cycle;"
         )
 
         tikz_parts.append(
-            f"    \\draw[ncorange, line width=0.4mm] ([yshift=13pt]{node_name}.base west) -- ([yshift=13pt]{node_name}.base east);"
+            f"    \\draw[ncblue, line width=0.4mm] ([yshift=13pt]{node_name}.base west) -- ([yshift=13pt]{node_name}.base east);"
         )
         tikz_parts.append(
-            f"    \\draw[ncorange,] ([yshift=13pt]{node_name}.base) -- ([yshift={height}pt]{node_name}.base);"
+            f"    \\draw[ncblue,] ([yshift=13pt]{node_name}.base) -- ([yshift={height}pt]{node_name}.base);"
         )
         tikz_parts.append(
-            f"    \\node[above={reduced_height}pt of {node_name}.base,anchor={anchor},inner sep=0,outer sep=0,xshift={xshift},yshift={yshift},text=ncorange] {{\\scriptsize {text}}};"
+            f"    \\node[above={reduced_height}pt of {node_name}.base,anchor={anchor},inner sep=0,outer sep=0,xshift={xshift},yshift={yshift},text=ncblue] {{\\scriptsize {text}}};"
         )
         tikz_parts.append("")
 
@@ -905,18 +905,18 @@ def generate_tikzpicture_annotations(
 
         tikz_parts.append(f"    %below annotation {pos}")
         tikz_parts.append(
-            f"\path[fill=ncorange!25,draw=none,line width=0pt] ({node_name}.south west) -- ({node_name}.south east) -- ([yshift=-8pt]{node_name}.base east) -- ([yshift=-8pt]{node_name}.base west) -- cycle;"
+            f"\path[fill=ncblue!15,draw=none,line width=0pt] ({node_name}.south west) -- ({node_name}.south east) -- ([yshift=-8pt]{node_name}.base east) -- ([yshift=-8pt]{node_name}.base west) -- cycle;"
         )
 
         # Draw the annotation line and connecting line
         tikz_parts.append(
-            f"    \\draw[ncorange, line width=0.4mm] ([yshift=-8pt]{node_name}.base west) -- ([yshift=-8pt]{node_name}.base east);"
+            f"    \\draw[ncblue, line width=0.4mm] ([yshift=-8pt]{node_name}.base west) -- ([yshift=-8pt]{node_name}.base east);"
         )
         tikz_parts.append(
-            f"    \\draw[ncorange,] ([yshift=-8pt]{node_name}.base) -- ([yshift=-{height}pt]{node_name}.base);"
+            f"    \\draw[ncblue,] ([yshift=-8pt]{node_name}.base) -- ([yshift=-{height}pt]{node_name}.base);"
         )
         tikz_parts.append(
-            f"    \\node[below={height}pt of {node_name}.base,anchor={anchor},inner sep=0,outer sep=0,xshift={xshift},yshift=-3pt,text=ncorange] {{\\scriptsize {text}}};"
+            f"    \\node[below={height}pt of {node_name}.base,anchor={anchor},inner sep=0,outer sep=0,xshift={xshift},yshift=-3pt,text=ncblue] {{\\scriptsize {text}}};"
         )
         tikz_parts.append("")
 
