@@ -1,6 +1,12 @@
 def generate_header(title: str) -> str:
     """Generate LaTeX document header."""
-    return r"""\documentclass[aspectratio=169,t]{beamer}
+    # Get Pygments style definitions for code highlighting
+    from pygments.formatters import LatexFormatter
+
+    pygments_style = LatexFormatter(style="default").get_style_defs()
+
+    return (
+        r"""\documentclass[aspectratio=169,t]{beamer}
 % Theme and font setup
 \usetheme{default}
 \usepackage{graphicx}
@@ -13,6 +19,7 @@ def generate_header(title: str) -> str:
   ItalicFont = *-Light Italic,
   BoldItalicFont = * Italic
 ]
+\setmonofont{Fira Mono}
 \usepackage{xcolor}
 \definecolor{navyblue}{RGB}{10,45,100}
 \definecolor{ncblue}{RGB}{221,150,51}
@@ -62,6 +69,11 @@ def generate_header(title: str) -> str:
 \usepackage{colortbl}
 \usepackage{array}
 \usepackage{booktabs}
+\usepackage{fancyvrb}
+\usepackage{color}
+"""
+        + pygments_style
+        + r"""
 \setlength{\parskip}{1.5em}
 \setlength{\parindent}{0pt}
 \setlength{\abovedisplayskip}{0pt}
@@ -69,6 +81,7 @@ def generate_header(title: str) -> str:
 \setlength{\abovedisplayshortskip}{0pt}
 \setlength{\belowdisplayshortskip}{0pt}
 \begin{document}"""
+    )
 
 
 def generate_footer() -> str:

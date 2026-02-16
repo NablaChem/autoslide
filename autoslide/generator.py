@@ -16,7 +16,7 @@ import shutil
 from typing import List, Dict, Tuple
 
 from .models import Block, BlockType
-from . import document, text, tables, lists, images, icons, equations
+from . import document, text, tables, lists, images, icons, equations, code
 
 
 class BeamerGenerator:
@@ -265,10 +265,18 @@ class BeamerGenerator:
                 blocks, slide_title, footline_content
             )
 
+        # Check if slide contains code blocks (needs fragile option for Verbatim)
+        has_code_block = any(block.type == BlockType.CODE for block in blocks)
+
         # Start normal frame with [t] option for top alignment
         frame_options = "[t]"
+        if has_code_block:
+            frame_options = "[t,fragile]"
         if footline_content:
-            frame_options = f"[t,{footline_content}]"
+            if has_code_block:
+                frame_options = f"[t,fragile,{footline_content}]"
+            else:
+                frame_options = f"[t,{footline_content}]"
 
         if slide_title:
             slide_parts.append(f"\\begin{{frame}}{frame_options}{{{slide_title}}}")
@@ -461,6 +469,9 @@ class BeamerGenerator:
             return images.format_image(block, has_columns, self.output_dir)
         elif block.type == BlockType.FOOTNOTE:
             return f"\\footnote[{block.metadata['number']}]{{{block.content}}}"
+        elif block.type == BlockType.CODE:
+            language = block.metadata.get("language", "text")
+            return code.format_code(block.content, language)
         elif block.type == BlockType.TEXT:
             return text.format_text(block.content)
         else:

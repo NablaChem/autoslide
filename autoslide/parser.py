@@ -174,17 +174,25 @@ class MarkdownBeamerParser:
                 i += 1
                 continue
 
-            # Check for fenced code blocks (plot/schematic)
-            if line.startswith("```") and ("plot" in line or "schematic" in line):
+            # Check for fenced code blocks (plot/schematic/code)
+            if line.startswith("```"):
                 if current_block_lines:
                     self._process_block_lines(current_block_lines)
                     current_block_lines = []
 
                 # Parse fenced code block
-                plot_block, new_i = self._parse_fenced_code_block(lines, i)
-                if plot_block:
-                    self.current_slide_blocks.append(plot_block)
-                i = new_i
+                if "plot" in line or "schematic" in line:
+                    # Handle plot/schematic blocks (generate figures)
+                    plot_block, new_i = self._parse_fenced_code_block(lines, i)
+                    if plot_block:
+                        self.current_slide_blocks.append(plot_block)
+                    i = new_i
+                else:
+                    # Handle generic code blocks (syntax highlighting)
+                    code_block, new_i = self._parse_code_block(lines, i)
+                    if code_block:
+                        self.current_slide_blocks.append(code_block)
+                    i = new_i
                 continue
 
             # Collect lines for current block (preserve original spacing)
@@ -266,6 +274,37 @@ class MarkdownBeamerParser:
         image_block = Block(BlockType.IMAGE, figure_filename, metadata)
 
         return image_block, i + 1
+
+    def _parse_code_block(
+        self, lines: List[str], start_i: int
+    ) -> Tuple[Block, int]:
+        """Parse a generic code block for Pygments rendering."""
+        start_line = lines[start_i].strip()
+
+        # Extract language: ```lang
+        match = re.match(r"^```(\w+)", start_line)
+        if not match:
+            return None, start_i + 1
+
+        language = match.group(1)
+
+        # Find the closing ```
+        code_lines = []
+        i = start_i + 1
+        while i < len(lines):
+            if lines[i].strip() == "```":
+                break
+            code_lines.append(lines[i])
+            i += 1
+
+        if i >= len(lines):
+            raise ValueError(f"Unclosed code block starting at line {start_i + 1}")
+
+        code = "\n".join(code_lines)
+        metadata = {"language": language}
+        code_block = Block(BlockType.CODE, code, metadata)
+
+        return code_block, i + 1
 
     def _generate_all_pending_figures(self):
         """Generate all pending figures now that we know each slide's complete layout."""

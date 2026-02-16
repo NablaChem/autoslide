@@ -18,6 +18,7 @@ class BlockType(Enum):
     COLUMN_SECTION_BREAK = "column_section_break"
     PLOT = "plot"
     SCHEMATIC = "schematic"
+    CODE = "code"
 
 
 @dataclass
