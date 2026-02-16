@@ -20,9 +20,8 @@ def format_list(content: str, process_heading_icons=None) -> str:
         list_lines.append(f"\\textbf{{\\textcolor{{ncblue}}{{{first_line}}}}}")
         start_idx = 1
 
-    # Process the list items
-    list_lines.append("\\vspace{-0.3em}\\begin{itemize}")
-
+    # First pass: collect all items to count them
+    items_data = []
     i = start_idx
     while i < len(lines):
         line = lines[i].strip()
@@ -41,7 +40,6 @@ def format_list(content: str, process_heading_icons=None) -> str:
             )
             # Handle italic formatting: *text* -> \textit{text}
             item_text = re.sub(r"\*([^*]+)\*", r"\\textit{\1}", item_text)
-            list_lines.append(f"\\item {item_text}")
 
             # Check if next lines are sub-items (indented dashes)
             sub_items = []
@@ -68,17 +66,29 @@ def format_list(content: str, process_heading_icons=None) -> str:
                 else:
                     break
 
-            # Add sub-items if any
+            items_data.append((item_text, sub_items))
+            i = j
+        else:
+            i += 1
+
+    # Check if we have only one item with no sub-items
+    if len(items_data) == 1 and not items_data[0][1]:
+        # Single item with no sub-items: place text directly without itemize
+        list_lines.append("")
+        list_lines.append(items_data[0][0])
+        list_lines.append("")
+        list_lines.append("\\vspace{0.5em}")
+    else:
+        # Multiple items or items with sub-items: use itemize environment
+        list_lines.append("\\vspace{-0.3em}\\begin{itemize}")
+        for item_text, sub_items in items_data:
+            list_lines.append(f"\\item {item_text}")
             if sub_items:
                 list_lines.append("\\begin{itemize}")
                 for sub_item in sub_items:
                     list_lines.append(f"\\item {sub_item}")
                 list_lines.append("\\end{itemize}")
+        list_lines.append("\\end{itemize}")
+        list_lines.append("\\vspace{0.5em}")
 
-            i = j
-        else:
-            i += 1
-
-    list_lines.append("\\end{itemize}")
-    list_lines.append("\\vspace{0.5em}")
     return "\n".join(list_lines)
