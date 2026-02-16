@@ -21,7 +21,6 @@ from . import document, text, tables, lists, images, icons, equations
 
 class BeamerGenerator:
     def __init__(self, output_dir=".", no_cache=False):
-        self.footnote_counter = 0
         self.node_counter = 0
         self.output_dir = output_dir
         self.cache_file = os.path.join(output_dir, ".autoslide.cache")
@@ -110,15 +109,6 @@ class BeamerGenerator:
         latex_parts.append(document.generate_footer())
 
         return "\n".join(latex_parts)
-
-    def _setup_slide_columns(self, slide_parts: List[str], has_columns: bool) -> bool:
-        """Setup columns environment for consistent positioning."""
-        slide_parts.append("\\begin{columns}[t]")
-        if has_columns:
-            slide_parts.append("\\begin{column}[t]{0.484\\textwidth}")
-        else:
-            slide_parts.append("\\begin{column}[t]{\\textwidth}")
-        return True
 
     def _split_blocks_into_sections(self, blocks: List[Block]) -> List[List[Block]]:
         """Split blocks into sections separated by COLUMN_SECTION_BREAK."""

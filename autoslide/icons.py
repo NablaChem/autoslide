@@ -82,7 +82,6 @@ def convert_svg_to_pdf(svg_path: str, pdf_path: str, color: str) -> None:
     """Convert SVG to PDF with specified color using cairosvg."""
     try:
         import cairosvg
-        import xml.etree.ElementTree as ET
 
         # Read and modify SVG to apply color
         with open(svg_path, "r", encoding="utf-8") as f:

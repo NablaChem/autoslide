@@ -10,12 +10,10 @@ def format_table(content: str) -> str:
 
     # Parse table rows
     table_rows = []
-    separator_found = False
 
     for i, line in enumerate(lines):
         # Skip separator line (|---|---|)
         if re.match(r"^\s*\|?[\s\-\|:]+\|?\s*$", line):
-            separator_found = True
             continue
 
         # Parse table row

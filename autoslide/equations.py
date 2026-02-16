@@ -233,12 +233,6 @@ def determine_annotation_placement(
         print(f"Equation: {equation_with_nodes}", file=sys.stderr)
         print(f"Annotations: {annotation_specs}", file=sys.stderr)
         raise
-        # Fallback to simple placement
-        below_placements = {}
-        for i, (exact_string, label) in enumerate(annotation_specs, 1):
-            if i in node_names:
-                below_placements[i] = (2.0, "base west")
-        return {}, below_placements
 
     # Step 2: Find optimal placement using brute force search
     above_placements, below_placements = find_optimal_placement(
@@ -282,7 +276,7 @@ def measure_annotation_bounding_boxes(
 
     try:
         # Create a temporary LaTeX document to measure all annotations
-        measurement_latex, updated_node_counter = create_measurement_document(
+        measurement_latex, _ = create_measurement_document(
             equation_with_nodes, annotation_specs, node_names, node_counter, has_columns
         )
 
@@ -603,14 +597,6 @@ def find_optimal_placement(
         all_combinations = generate_placement_combinations(
             num_annotations, levels_above, levels_below
         )
-        # Remove debug code - let the normal algorithm run
-        c = (
-            ("below", 15.0, "base east"),
-            ("below", 15.0, "base east"),
-            ("below", 15.0, "base east"),
-            ("below", 15.0, "base west"),
-        )
-        # all_combinations = [c]
         for combination in all_combinations:
             if check_placement_validity(
                 combination,
@@ -748,7 +734,7 @@ def check_placement_validity(
         # Check if any annotation extends beyond page boundaries
         # In two-column mode, use smaller left margin since we're within a column
         left_margin = 5.0 if has_columns else 20.0
-        for i, left_bound, right_bound, anchor, width in annotations:
+        for i, left_bound, right_bound, _, _ in annotations:
             if left_bound < left_margin or right_bound > page_width_pt:
                 return False
 
@@ -765,12 +751,10 @@ def check_placement_validity(
 
             # Check if any text box from level_1 crosses through vertical lines from level_2
             for ann_1 in annotations_1:
-                ann_1_id, ann_1_left, ann_1_right, ann_1_anchor, ann_1_width = ann_1
+                _, ann_1_left, ann_1_right, _, _ = ann_1
 
                 for ann_2 in annotations_2:
-                    ann_2_id, ann_2_left, ann_2_right, ann_2_anchor, ann_2_width = (
-                        ann_2
-                    )
+                    ann_2_id, _, _, _, _ = ann_2
 
                     # Get the vertical line position for annotation 2 (its node position)
                     if ann_2_id in node_positions:
