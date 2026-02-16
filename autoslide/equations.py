@@ -371,7 +371,7 @@ def create_measurement_document(
 \setlength{\leftmargini}{1em}
 \setlength{\leftmarginii}{2em}
 \setlength{\leftmarginiii}{3em}
-\setbeamercolor{footnote mark}{fg=orange}
+\setbeamercolor{footnote mark}{fg=ncblue}
 \setbeamertemplate{footnote mark}{[\insertfootnotemark]}
 \setbeamertemplate{frametitle}{%
   \vskip-0.2ex

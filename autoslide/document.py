@@ -15,7 +15,7 @@ def generate_header(title: str) -> str:
 ]
 \usepackage{xcolor}
 \definecolor{navyblue}{RGB}{10,45,100}
-\definecolor{ncorange}{RGB}{221,150,51}
+\definecolor{ncblue}{RGB}{221,150,51}
 \definecolor{ncblue}{RGB}{10,45,100}
 \setbeamersize
 {
@@ -36,7 +36,7 @@ def generate_header(title: str) -> str:
 \setlength{\leftmargini}{1em}
 \setlength{\leftmarginii}{2em}
 \setlength{\leftmarginiii}{3em}
-\setbeamercolor{footnote mark}{fg=orange}
+\setbeamercolor{footnote mark}{fg=ncblue}
 \setbeamertemplate{footnote mark}{[\insertfootnotemark]}
 \setbeamertemplate{frametitle}{%
   \vskip-0.2ex
@@ -51,9 +51,9 @@ def generate_header(title: str) -> str:
 }
 \usepackage{amsmath}
 % Set equation numbers to orange color with orange parentheses
-\renewcommand{\theequation}{\textcolor{ncorange}{\arabic{equation}}}
+\renewcommand{\theequation}{\textcolor{ncblue}{\arabic{equation}}}
 \makeatletter
-\renewcommand{\tagform@}[1]{\maketag@@@{\textcolor{ncorange}{(#1)}}}
+\renewcommand{\tagform@}[1]{\maketag@@@{\textcolor{ncblue}{(#1)}}}
 \makeatother
 \usepackage{tikz}
 \usetikzlibrary{tikzmark,calc,positioning}

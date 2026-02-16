@@ -17,13 +17,13 @@ def format_image(block: Block, has_columns: bool = False, output_dir: str = ".")
     if has_columns:
         # Two-column layout: use linewidth (fits within column)
         width_limit = 1.0
-        height_limit = 0.6
-        width_setting = "width=\\linewidth"
-        height_setting = "height=0.6\\textheight"
+        height_limit = 0.7
+        shift_up = -0.5
     else:
         # Single-column layout: use larger scaling to fill more space
         width_limit = 1.5
         height_limit = 0.7
+        shift_up = 0
 
     # calculate final scaling
     width_setting = f"width={width_limit * scale_factor}\\linewidth"
@@ -38,6 +38,7 @@ def format_image(block: Block, has_columns: bool = False, output_dir: str = ".")
         image_path = f"../assets/{image_file}"
 
     return f"""\\begin{{center}}
+    \\vspace{{{shift_up}em}}
 \\includegraphics[{width_setting},{height_setting},keepaspectratio]{{{image_path}}}
 \\end{{center}}
 \\vspace{{-1em}}

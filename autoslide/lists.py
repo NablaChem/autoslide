@@ -17,11 +17,11 @@ def format_list(content: str, process_heading_icons=None) -> str:
         # Handle icon syntax in heading if processor provided
         if process_heading_icons:
             first_line = process_heading_icons(first_line)
-        list_lines.append(f"\\textbf{{\\textcolor{{navyblue}}{{{first_line}}}}}")
+        list_lines.append(f"\\textbf{{\\textcolor{{ncblue}}{{{first_line}}}}}")
         start_idx = 1
 
     # Process the list items
-    list_lines.append("\\begin{itemize}")
+    list_lines.append("\\vspace{-0.3em}\\begin{itemize}")
 
     i = start_idx
     while i < len(lines):

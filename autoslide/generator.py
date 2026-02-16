@@ -424,8 +424,8 @@ class BeamerGenerator:
             if block.type == BlockType.FOOTNOTE:
                 footnotes.append(block)
 
-        # Set orange color before frame begins
-        slide_parts.append("\\setbeamercolor{frametitle}{bg=ncorange, fg=white}")
+        # Set blue color before frame begins
+        slide_parts.append("\\setbeamercolor{frametitle}{bg=ncblue, fg=white}")
 
         # Start normal frame with [t] option for top alignment
         frame_options = "[t]"
@@ -502,13 +502,13 @@ class BeamerGenerator:
             content = re.sub(r"\*([^*]+)\*", r"\\textit{\1}", footnote.content)
             footnote_parts.append(f"\\textcolor{{gray}}{{{content}}}")
 
-        # Add numbered footnotes with orange markers and pipes, gray text
+        # Add numbered footnotes with blue markers and pipes, gray text
         for footnote in numbered_footnotes:
             number = footnote.metadata.get("number", "")
             # Apply italic formatting to footnote content
             content = re.sub(r"\*([^*]+)\*", r"\\textit{\1}", footnote.content)
             footnote_parts.append(
-                f"\\textcolor{{orange}}{{{number}}}\\textcolor{{orange}}{{|}}~\\textcolor{{gray}}{{{content}}}"
+                f"\\textcolor{{ncblue}}{{{number}}}\\textcolor{{ncblue}}{{|}}~\\textcolor{{gray}}{{{content}}}"
             )
 
         return " ".join(footnote_parts)

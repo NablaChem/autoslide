@@ -5,18 +5,18 @@ from .models import BlockType
 
 
 def generate_figure_file(
-    code: str, block_type: BlockType, filename: str, has_columns: bool = False, output_dir: str = "."
+    code: str,
+    block_type: BlockType,
+    filename: str,
+    has_columns: bool = False,
+    output_dir: str = ".",
 ):
     """Generate a single figure file with the specified parameters."""
     # Create Python script for subplot execution (filename relative to output_dir)
-    python_script = create_matplotlib_script(
-        code, block_type, filename, has_columns
-    )
+    python_script = create_matplotlib_script(code, block_type, filename, has_columns)
 
     # Write script to temporary file
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".py", delete=False
-    ) as temp_file:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as temp_file:
         temp_file.write(python_script)
         temp_script_path = temp_file.name
 
@@ -44,6 +44,28 @@ def generate_figure_file(
             pass
 
 
+# Centralized plot styling configuration
+PLOT_STYLE = {
+    # Figure sizes
+    "figsize_single_column": (10, 5.625),  # 16:9 aspect ratio
+    "figsize_two_column": (8, 8),  # 4:3 aspect ratio
+    # Font sizes (doubled for better readability)
+    "font_size": 20,  # General font size
+    "label_size": 25,  # Axis labels
+    "tick_size": 25,  # Tick labels
+    "legend_size": 25,  # Legend font size
+    # Line and marker sizes
+    "line_width": 2,
+    "marker_size": 12,
+    "spine_width": 3,
+    # Colors
+    "ncblue": "#0A2D64",  # Navy blue color from beamer theme
+    # Legend styling
+    "legend_frame": False,  # No frame around legend
+    "legend_framealpha": 0.0,  # Transparent background
+}
+
+
 def create_matplotlib_script(
     user_code: str,
     block_type: BlockType,
@@ -52,25 +74,26 @@ def create_matplotlib_script(
 ) -> str:
     """Create complete Python script for matplotlib figure generation."""
 
-    # Determine figure parameters based on layout FIRST
+    # Determine figure parameters based on layout
     if has_columns:
-        # Two-column layout: 4:3 aspect ratio with standard sizes
-        figsize = "(8, 6)"
+        figsize = str(PLOT_STYLE["figsize_two_column"])
     else:
-        # Single-column layout: 16:9 aspect ratio
-        figsize = "(10, 5.625)"  # 16:9 aspect ratio
+        figsize = str(PLOT_STYLE["figsize_single_column"])
 
-    font_size = "16"
-    label_size = "25"
-    tick_size = "18"
-    line_width = "2"
-    marker_size = "12"
-    spine_width = "3"
+    # Extract style parameters
+    font_size = str(PLOT_STYLE["font_size"])
+    label_size = str(PLOT_STYLE["label_size"])
+    tick_size = str(PLOT_STYLE["tick_size"])
+    legend_size = str(PLOT_STYLE["legend_size"])
+    line_width = str(PLOT_STYLE["line_width"])
+    marker_size = str(PLOT_STYLE["marker_size"])
+    spine_width = str(PLOT_STYLE["spine_width"])
+    ncblue = PLOT_STYLE["ncblue"]
     # Configure schematic vs plot styling
     if block_type == BlockType.SCHEMATIC:
         style_config = f"""
 # Configure for schematic (no tick marks, thick axes in navy blue)
-ncblue = '#0A2D64'  # Navy blue color from beamer theme
+ncblue = '{ncblue}'
 ax = plt.gca()
 ax.spines['left'].set_linewidth({spine_width})
 ax.spines['left'].set_color(ncblue)
@@ -90,7 +113,7 @@ ax.set_yticks([])
     else:  # PLOT
         style_config = f"""
 # Configure for plot (with tick marks, thick axes in navy blue)
-ncblue = '#0A2D64'  # Navy blue color from beamer theme
+ncblue = '{ncblue}'
 ax = plt.gca()
 ax.spines['left'].set_linewidth({spine_width})
 ax.spines['left'].set_color(ncblue)
@@ -126,12 +149,17 @@ plt.rcParams['font.size'] = {font_size}
 plt.rcParams['axes.labelsize'] = {label_size}
 plt.rcParams['xtick.labelsize'] = {tick_size}
 plt.rcParams['ytick.labelsize'] = {tick_size}
+plt.rcParams['legend.fontsize'] = {legend_size}
 plt.rcParams['lines.linewidth'] = {line_width}
 plt.rcParams['lines.markersize'] = {marker_size}
 
 # Set default label positions to axis ends
 plt.rcParams['xaxis.labellocation'] = 'right'
 plt.rcParams['yaxis.labellocation'] = 'top'
+
+# Configure legend styling (no frame by default)
+plt.rcParams['legend.frameon'] = False
+plt.rcParams['legend.framealpha'] = 0.0
 
 # User code
 {user_code}
