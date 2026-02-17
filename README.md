@@ -1,33 +1,33 @@
 # AutoSlide
 
-Presentation slides in markdown, converted to LaTeX Beamer with automatic annotations for equations.
+Presentation slides in markdown, converted to LaTeX Beamer and then PDF with automatic annotations for equations: all the fun and none of the work! LLM-friendly.
 
-## Installation
+![Annotated equations](examples/example-04-equations.png)
 
-```bash
-pip install click matplotlib numpy tqdm cairosvg pygments
+is generated from this:
+
+```markdown
+### Kernel Ridge Regression (KRR)
+
+$$\mathbf{K}_{ij} = {k}(\mathbf{x}_i, \mathbf{x}_j)$$
+[[ {k} ]] Kernel function
+[[ \mathbf{x}_i, \mathbf{x}_j ]] Features of training points
+[[ \mathbf{K}_{ij} ]] Kernel matrix element
+
+$$\mathbf{w} = (\mathbf{K} + \lambda\, \mathbf{I}_N)^{-1}\mathbf{y}$$
+[[ \mathbf{K} ]] Kernel matrix ($N\times N$)
+[[ \mathbf{w} ]] Model weights
+[[ \lambda ]] Regularization
+[[ \mathbf{I}_N ]] Identity matrix ($N\times N$)
+[[ \mathbf{y} ]] Training labels
+
+$$\hat y(\mathbf{x}_q) = \sum_{i=1}^{ N } w_i {k}(\mathbf{x}_i, \mathbf{x}_q)$$
+[[ \hat y ]] Prediction
+[[ \mathbf{x}_q ]] Query
+[[ w_i ]] Weight of $i$-th training point
+[[ \mathbf{x}_i ]] Training point features
 ```
 
-Requirements:
-- Python 3.x
-- XeLaTeX (via TeX Live or similar)
-- latexmk
-- Fira Sans font
-
-## Usage
-
-```bash
-$ python -m autoslide.cli lecture.md
-Parsed 15 slides
-Generating 8 figures...
-Generating figures: 100%|██████████| 8/8 [00:12<00:00,  1.5s/figure]
-Generated lecture-autoslide/lecture.tex
-Compiling LaTeX to PDF...
-LaTeX compilation successful
-PDF copied to lecture.pdf
-```
-
-AutoSlide creates an output directory, generates LaTeX, compiles to PDF, and copies the result back.
 
 ## Examples
 
@@ -108,10 +108,30 @@ AutoSlide creates an output directory, generates LaTeX, compiles to PDF, and cop
 - `># file.md` - Include file
 - `:icon:` - Icons in headings, https://phosphoricons.com/
 
-## Command Options
 
-- `--no-cache` - Regenerate all figures
+## Installation
 
-## Output
+```bash
+pip install click matplotlib numpy tqdm cairosvg pygments
+```
 
-Generated presentations use a custom beamer theme with navy blue accents.
+Requirements:
+- Python 3.x
+- XeLaTeX (via TeX Live or similar)
+- latexmk
+- Fira Sans font
+
+## Usage
+
+```bash
+$ python -m autoslide.cli lecture.md
+Parsed 15 slides
+Generating 8 figures...
+Generating figures: 100%|██████████| 8/8 [00:12<00:00,  1.5s/figure]
+Generated lecture-autoslide/lecture.tex
+Compiling LaTeX to PDF...
+LaTeX compilation successful
+PDF copied to lecture.pdf
+```
+
+AutoSlide creates an output directory, generates LaTeX, compiles to PDF, and copies the result back.
