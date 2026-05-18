@@ -12,6 +12,8 @@ def format_list(content: str, process_heading_icons=None) -> str:
 
     if first_line and not first_line.startswith("-"):
         # First line is a heading
+        # Handle footnote references in heading
+        first_line = re.sub(r"\[\^(\d+)\]", r"\\footnotemark[\1]", first_line)
         # Handle italic formatting in heading
         first_line = re.sub(r"\*([^*]+)\*", r"\\textit{\1}", first_line)
         # Handle icon syntax in heading if processor provided

@@ -22,7 +22,11 @@ class MarkdownBeamerParser:
     def parse(self, markdown_text: str) -> List[List[Block]]:
         """Parse markdown text and return list of slides, each containing blocks."""
         lines = markdown_text.strip().split("\n")
+        # Parallel array tracking (filename, 1-indexed line number) for each entry in lines
+        source_map = [(self.input_filename, j + 1) for j in range(len(lines))]
         current_block_lines = []
+        current_block_start_line = None  # 1-indexed line number within source file
+        current_block_source_file = None  # source file for current block
 
         i = 0
         while i < len(lines):
@@ -36,13 +40,16 @@ class MarkdownBeamerParser:
             # Handle include lines (starting with >#)
             if line.startswith("># "):
                 include_path = line[3:].strip()
+                resolved_path = self._resolve_include_path(include_path)
                 try:
                     include_content = self._read_include_file(include_path)
                     # Insert the content lines at current position
                     include_lines = include_content.strip().split("\n")
-                    lines[i : i + 1] = (
-                        include_lines  # Replace current line with include content
-                    )
+                    include_source_map = [
+                        (resolved_path, j + 1) for j in range(len(include_lines))
+                    ]
+                    lines[i : i + 1] = include_lines
+                    source_map[i : i + 1] = include_source_map
                     # Don't increment i since we want to process the first included line
                     continue
                 except Exception as e:
@@ -57,16 +64,20 @@ class MarkdownBeamerParser:
             # Empty line - end current block
             if not line:
                 if current_block_lines:
-                    self._process_block_lines(current_block_lines)
+                    self._process_block_lines(current_block_lines, current_block_start_line, current_block_source_file)
                     current_block_lines = []
+                    current_block_start_line = None
+                    current_block_source_file = None
                 i += 1
                 continue
 
             # Check for section header
             if line.startswith("## "):
                 if current_block_lines:
-                    self._process_block_lines(current_block_lines)
+                    self._process_block_lines(current_block_lines, current_block_start_line, current_block_source_file)
                     current_block_lines = []
+                    current_block_start_line = None
+                    current_block_source_file = None
                 self._finish_current_slide()
                 section_title = line[3:].strip()
                 self.current_slide_blocks.append(
@@ -78,8 +89,10 @@ class MarkdownBeamerParser:
             # Check for title page (five #)
             if line.startswith("##### "):
                 if current_block_lines:
-                    self._process_block_lines(current_block_lines)
+                    self._process_block_lines(current_block_lines, current_block_start_line, current_block_source_file)
                     current_block_lines = []
+                    current_block_start_line = None
+                    current_block_source_file = None
                 self._finish_current_slide()
 
                 # Extract title from five # format
@@ -93,8 +106,10 @@ class MarkdownBeamerParser:
             # Check for slide title
             if line.startswith("### "):
                 if current_block_lines:
-                    self._process_block_lines(current_block_lines)
+                    self._process_block_lines(current_block_lines, current_block_start_line, current_block_source_file)
                     current_block_lines = []
+                    current_block_start_line = None
+                    current_block_source_file = None
                 self._finish_current_slide()
 
                 # Extract title and check for special markers
@@ -125,8 +140,10 @@ class MarkdownBeamerParser:
             # Check for column break
             if line == "-|-":
                 if current_block_lines:
-                    self._process_block_lines(current_block_lines)
+                    self._process_block_lines(current_block_lines, current_block_start_line, current_block_source_file)
                     current_block_lines = []
+                    current_block_start_line = None
+                    current_block_source_file = None
                 self.current_slide_blocks.append(Block(BlockType.COLUMN_BREAK, ""))
                 i += 1
                 continue
@@ -134,8 +151,10 @@ class MarkdownBeamerParser:
             # Check for column section break
             if line == "---":
                 if current_block_lines:
-                    self._process_block_lines(current_block_lines)
+                    self._process_block_lines(current_block_lines, current_block_start_line, current_block_source_file)
                     current_block_lines = []
+                    current_block_start_line = None
+                    current_block_source_file = None
                 self.current_slide_blocks.append(Block(BlockType.COLUMN_SECTION_BREAK, ""))
                 i += 1
                 continue
@@ -143,8 +162,10 @@ class MarkdownBeamerParser:
             # Check for footnote definition (numbered or starred)
             if re.match(r"^\[[\d\*]+\] ", line):
                 if current_block_lines:
-                    self._process_block_lines(current_block_lines)
+                    self._process_block_lines(current_block_lines, current_block_start_line, current_block_source_file)
                     current_block_lines = []
+                    current_block_start_line = None
+                    current_block_source_file = None
                 footnote_match = re.match(r"^\[([^\]]+)\] (.+)", line)
                 if footnote_match:
                     footnote_num = footnote_match.group(1)
@@ -161,8 +182,10 @@ class MarkdownBeamerParser:
             # Check for image
             if line.startswith(":::") and ":" in line[3:]:
                 if current_block_lines:
-                    self._process_block_lines(current_block_lines)
+                    self._process_block_lines(current_block_lines, current_block_start_line, current_block_source_file)
                     current_block_lines = []
+                    current_block_start_line = None
+                    current_block_source_file = None
                 # Parse image syntax: "::: filename.svg: Caption"
                 image_match = re.match(r"^::: ([^:]+):(.*)$", line)
                 if image_match:
@@ -177,8 +200,10 @@ class MarkdownBeamerParser:
             # Check for fenced code blocks (plot/schematic/code)
             if line.startswith("```"):
                 if current_block_lines:
-                    self._process_block_lines(current_block_lines)
+                    self._process_block_lines(current_block_lines, current_block_start_line, current_block_source_file)
                     current_block_lines = []
+                    current_block_start_line = None
+                    current_block_source_file = None
 
                 # Parse fenced code block
                 if "plot" in line or "schematic" in line:
@@ -196,6 +221,9 @@ class MarkdownBeamerParser:
                 continue
 
             # Collect lines for current block (preserve original spacing)
+            if not current_block_lines:
+                current_block_start_line = source_map[i][1]
+                current_block_source_file = source_map[i][0]
             current_block_lines.append(
                 lines[i]
             )  # Use original line, not stripped version
@@ -203,7 +231,7 @@ class MarkdownBeamerParser:
 
         # Process final block
         if current_block_lines:
-            self._process_block_lines(current_block_lines)
+            self._process_block_lines(current_block_lines, current_block_start_line, current_block_source_file)
 
         self._finish_current_slide()
 
@@ -251,27 +279,19 @@ class MarkdownBeamerParser:
         code = "\n".join(code_lines)
         self.figure_counter += 1
 
-        # Determine base filename
-        if self.input_filename:
-            base_name = os.path.splitext(os.path.basename(self.input_filename))[0]
-        else:
-            base_name = "figure"
+        # Create image block with placeholder filename; content updated later once
+        # has_columns is known and the content hash can be computed.
+        metadata = {"caption": caption, "generated": True}
+        image_block = Block(BlockType.IMAGE, "", metadata)
 
-        figure_filename = f"{base_name}.figure{self.figure_counter}.pdf"
-
-        # Store figure info for later generation
         figure_info = {
             "code": code,
             "block_type": block_type,
             "caption": caption,
-            "filename": figure_filename,
-            "slide_index": len(self.slides),  # Current slide index
+            "slide_index": len(self.slides),
+            "image_block": image_block,
         }
         self.pending_figures.append(figure_info)
-
-        # Create image block pointing to future generated figure
-        metadata = {"caption": caption, "generated": True}
-        image_block = Block(BlockType.IMAGE, figure_filename, metadata)
 
         return image_block, i + 1
 
@@ -311,6 +331,13 @@ class MarkdownBeamerParser:
         if not self.pending_figures:
             return
 
+        generated_dir = os.path.normpath(
+            os.path.join(self.output_dir, "..", "assets", "generated")
+        )
+        os.makedirs(generated_dir, exist_ok=True)
+
+        used_hashes = set()
+
         print(f"Generating {len(self.pending_figures)} figures...", file=sys.stderr)
 
         for figure_info in tqdm(
@@ -328,47 +355,64 @@ class MarkdownBeamerParser:
                     block.type == BlockType.COLUMN_BREAK for block in slide_blocks
                 )
             else:
-                # Figure is on current slide being built
                 has_columns = any(
                     block.type == BlockType.COLUMN_BREAK
                     for block in self.current_slide_blocks
                 )
 
-            # Generate the figure with correct layout parameters
-            figures.generate_figure_file(
-                figure_info["code"],
-                figure_info["block_type"],
-                figure_info["filename"],
-                has_columns,
-                self.output_dir,
-            )
+            code = figure_info["code"]
+            block_type = figure_info["block_type"]
+
+            hash_str = figures.compute_figure_hash(code, block_type, has_columns)
+            hash_filename = f"{hash_str}.pdf"
+            hash_path = os.path.join(generated_dir, hash_filename)
+
+            # Point the image block at the final content-addressed filename
+            figure_info["image_block"].content = hash_filename
+            used_hashes.add(hash_str)
+
+            if not os.path.exists(hash_path):
+                figures.generate_figure_file(
+                    code, block_type, hash_filename, has_columns, generated_dir
+                )
+
+        # Delete stale generated figures not used in this run
+        for fname in os.listdir(generated_dir):
+            if fname.endswith(".pdf") and fname[:-4] not in used_hashes:
+                os.unlink(os.path.join(generated_dir, fname))
 
 
-    def _process_block_lines(self, lines: List[str]):
+    def _process_block_lines(self, lines: List[str], start_line: int = None, source_file: str = None):
         """Process a block of lines to determine its type and content."""
         if not lines:
             return
 
         content = "\n".join(lines)
 
-        # Check for equation (starts with $$)
-        if lines[0].startswith("$$"):
-            # Find where equation ends
+        # Check for equation ($$ may be preceded by a heading line in the same block)
+        equation_start = next(
+            (i for i, l in enumerate(lines) if l.startswith("$$")), -1
+        )
+        if equation_start >= 0:
+            remaining = lines[equation_start:]
+            # Find where the equation ends within the remaining lines
             equation_end = -1
-            for i, line in enumerate(lines):
-                # For multiline equations, skip the first line which starts with $$
-                # Only consider a line ending if it's not the first line or if it's a single line equation
-                if line.endswith("$$") and (i > 0 or lines[0].strip() != "$$"):
+            for i, line in enumerate(remaining):
+                if line.endswith("$$") and (i > 0 or remaining[0].strip() != "$$"):
                     equation_end = i
                     break
 
             if equation_end >= 0:
-                equation_lines = lines[: equation_end + 1]
-                annotation_lines = (
-                    lines[equation_end + 1 :] if equation_end + 1 < len(lines) else []
-                )
+                heading_lines = lines[:equation_start]
+                equation_lines = remaining[: equation_end + 1]
+                annotation_lines = remaining[equation_end + 1 :]
 
-                # Always use ANNOTATED_EQUATION type, even if no annotations
+                annotation_start_line = None
+                if start_line is not None:
+                    annotation_start_line = (
+                        start_line + equation_start + equation_end + 1
+                    )
+
                 self.current_slide_blocks.append(
                     Block(
                         BlockType.ANNOTATED_EQUATION,
@@ -378,6 +422,10 @@ class MarkdownBeamerParser:
                             "annotations": (
                                 "\n".join(annotation_lines) if annotation_lines else ""
                             ),
+                            "heading": "\n".join(heading_lines),
+                            "start_line": start_line,
+                            "annotation_start_line": annotation_start_line,
+                            "source_filename": source_file if source_file is not None else self.input_filename,
                         },
                     )
                 )
@@ -439,14 +487,14 @@ class MarkdownBeamerParser:
             self.slides.append(self.current_slide_blocks.copy())
             self.current_slide_blocks = []
 
+    def _resolve_include_path(self, include_path: str) -> str:
+        """Resolve an include path relative to the input file's directory."""
+        if self.input_filename and not os.path.isabs(include_path):
+            return os.path.join(os.path.dirname(self.input_filename), include_path)
+        return include_path
+
     def _read_include_file(self, include_path: str) -> str:
         """Read and return the content of an include file."""
-        import os
-
-        # Handle relative paths relative to the input file's directory
-        if self.input_filename and not os.path.isabs(include_path):
-            input_dir = os.path.dirname(self.input_filename)
-            include_path = os.path.join(input_dir, include_path)
-
+        include_path = self._resolve_include_path(include_path)
         with open(include_path, "r", encoding="utf-8") as f:
             return f.read()

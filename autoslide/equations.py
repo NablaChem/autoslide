@@ -19,6 +19,7 @@ def format_annotated_equation(block: Block, has_columns: bool = False, node_coun
     """Format an annotated equation with tikzmarknode annotations."""
     equation = block.metadata["equation"]
     annotations = block.metadata["annotations"]
+    heading = block.metadata.get("heading", "")
 
     # Parse the equation (remove $$ markers but preserve internal spacing)
     equation_content = equation.strip()
@@ -36,9 +37,12 @@ def format_annotated_equation(block: Block, has_columns: bool = False, node_coun
 
     # Parse new annotation format: [[ exact string ]] Label
     annotation_specs = []
+    annotation_source_lines = {}  # 1-indexed annotation position -> source line number
+    annotation_start_line = block.metadata.get("annotation_start_line")
+    source_filename = block.metadata.get("source_filename")
     if annotations.strip():
-        for line in annotations.split("\n"):
-            line = line.strip()
+        for offset, raw_line in enumerate(annotations.split("\n")):
+            line = raw_line.strip()
             if not line:
                 continue
 
@@ -50,17 +54,31 @@ def format_annotated_equation(block: Block, has_columns: bool = False, node_coun
                 ).strip()  # Trim edges but keep internal whitespace
                 label = match.group(2).strip()
                 annotation_specs.append((exact_string, label))
+                if annotation_start_line is not None:
+                    annotation_source_lines[len(annotation_specs)] = (
+                        annotation_start_line + offset
+                    )
+
+    def _prepend_heading(latex: str) -> str:
+        if not heading:
+            return latex
+        rendered = re.sub(r"\*([^*]+)\*", r"\\textit{\1}", heading)
+        return f"\\textbf{{\\textcolor{{ncblue}}{{{rendered}}}}}\n{latex}"
 
     # If no annotations, render as simple equation
     if not annotation_specs:
-        return f"\\begin{{align}}\\abovedisplayskip=0pt\\belowdisplayskip=0pt{equation_content}\\end{{align}}", node_counter
+        return _prepend_heading(f"\\begin{{align}}\\abovedisplayskip=0pt\\belowdisplayskip=0pt{equation_content}\\end{{align}}"), node_counter
 
     # Create tikzmarknode-wrapped equation
     annotated_equation, node_names, node_counter = create_tikzmarknode_equation_new(
-        equation_content, annotation_specs, node_counter
+        equation_content, annotation_specs, node_counter,
+        annotation_source_lines=annotation_source_lines,
+        source_filename=source_filename,
     )
 
     # Determine optimal placement for annotations
+    heading_hint = f" [{heading[:40]}]" if heading else ""
+    print(f"Placing annotations for equation{heading_hint}", file=sys.stderr, flush=True)
     above_placements, below_placements = determine_annotation_placement(
         annotated_equation, annotation_specs, node_names, has_columns, node_counter, output_dir
     )
@@ -112,15 +130,20 @@ def format_annotated_equation(block: Block, has_columns: bool = False, node_coun
             f"\\begin{{align}}\\abovedisplayskip=0pt\\belowdisplayskip=0pt{annotated_equation}\\end{{align}}"
         ]
 
-    return "\n".join(latex_parts), node_counter
+    return _prepend_heading("\n".join(latex_parts)), node_counter
 
 
 def create_tikzmarknode_equation_new(
-    equation_content: str, annotation_specs: List[Tuple[str, str]], node_counter: int
+    equation_content: str,
+    annotation_specs: List[Tuple[str, str]],
+    node_counter: int,
+    annotation_source_lines: Dict[int, int] = None,
+    source_filename: str = None,
 ) -> Tuple[str, Dict[int, str], int]:
     """Create equation with tikzmarknode wrappers based on exact string matching."""
     result = equation_content
     node_names = {}  # Map annotation position to node name
+    annotation_source_lines = annotation_source_lines or {}
 
     # Process annotations in order from longest to shortest to avoid substring conflicts
     # Sort by string length descending, but preserve original indices for node naming
@@ -171,8 +194,14 @@ def create_tikzmarknode_equation_new(
             break
 
         if pos == -1:
+            location_parts = []
+            if source_filename:
+                location_parts.append(source_filename)
+            if i in annotation_source_lines:
+                location_parts.append(f"line {annotation_source_lines[i]}")
+            location = f" ({', '.join(location_parts)})" if location_parts else ""
             raise ValueError(
-                f"Annotation string '[[ {exact_string} ]]' not found in equation (or only found inside existing annotations)"
+                f"Annotation string '[[ {exact_string} ]]'{location} not found in equation (or only found inside existing annotations)"
             )
 
         # Generate unique node name
@@ -290,12 +319,15 @@ def measure_annotation_bounding_boxes(
             f.write("")
 
         # Run latexmk with XeLaTeX to compile and measure (handles multiple runs automatically)
+        n = len(annotation_specs)
+        print(f"  Measuring annotation layout ({n} annotation{'s' if n != 1 else ''})...", file=sys.stderr, flush=True)
         result = subprocess.run(
             ["latexmk", "-xelatex", "-interaction=nonstopmode", "measurement.tex"],
             capture_output=True,
             text=True,
             cwd=temp_dir,
         )
+        print(f"  Done.", file=sys.stderr, flush=True)
 
         if result.returncode != 0:
             raise RuntimeError(

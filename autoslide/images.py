@@ -31,10 +31,8 @@ def format_image(block: Block, has_columns: bool = False, output_dir: str = ".")
 
     # Determine image path based on whether it's generated or from assets
     if block.metadata.get("generated", False):
-        # Generated figure - same directory as .tex file
-        image_path = image_file
+        image_path = f"../assets/generated/{image_file}"
     else:
-        # Regular asset image - in ../assets/ directory
         image_path = f"../assets/{image_file}"
 
     return f"""\\begin{{center}}

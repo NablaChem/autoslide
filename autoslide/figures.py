@@ -1,7 +1,23 @@
 import os
+import hashlib
+import json
 import tempfile
 import subprocess
 from .models import BlockType
+
+
+def compute_figure_hash(code: str, block_type: BlockType, has_columns: bool) -> str:
+    """Hash all inputs that determine the figure's visual output."""
+    data = json.dumps(
+        {
+            "code": code,
+            "block_type": block_type.value,
+            "has_columns": has_columns,
+            "style": {k: list(v) if isinstance(v, tuple) else v for k, v in PLOT_STYLE.items()},
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(data.encode()).hexdigest()
 
 
 def generate_figure_file(
