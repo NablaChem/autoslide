@@ -1,4 +1,4 @@
-def generate_header(title: str) -> str:
+def generate_header(title: str, tracing: bool = False) -> str:
     """Generate LaTeX document header."""
     # Get Pygments style definitions for code highlighting
     from pygments.formatters import LatexFormatter
@@ -72,6 +72,7 @@ def generate_header(title: str) -> str:
 \usepackage{fancyvrb}
 \usepackage{color}
 """
+        + (r"\usepackage{tcolorbox}" + "\n" if tracing else "")
         + pygments_style
         + r"""
 \setlength{\parskip}{1.5em}

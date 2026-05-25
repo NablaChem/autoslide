@@ -13,7 +13,8 @@ from .poster_generator import PosterGenerator
 @click.argument("markdown_file", type=click.Path(exists=True, readable=True))
 @click.option("--no-cache", is_flag=True, help="Disable reading from cache (writing to cache still enabled)")
 @click.option("--poster/--no-poster", default=None, help="Force poster or slide mode (default: auto-detect)")
-def main(markdown_file, no_cache, poster):
+@click.option("--tracing", is_flag=True, help="Draw red border around every block for layout debugging")
+def main(markdown_file, no_cache, poster, tracing):
     """Convert markdown file to LaTeX beamer presentation or A0 poster."""
 
     base_name = os.path.splitext(os.path.basename(markdown_file))[0]
@@ -40,10 +41,10 @@ def main(markdown_file, no_cache, poster):
     print(f"Parsed {len(slides)} slides ({mode} mode)", file=sys.stderr)
 
     if is_poster_file:
-        generator = PosterGenerator(output_dir, no_cache=no_cache)
+        generator = PosterGenerator(output_dir, no_cache=no_cache, tracing=tracing)
         latex_output = generator.generate_poster(slides)
     else:
-        generator = BeamerGenerator(output_dir, no_cache=no_cache)
+        generator = BeamerGenerator(output_dir, no_cache=no_cache, tracing=tracing)
         latex_output = generator.generate_beamer(slides, base_name)
 
     # Write output to file

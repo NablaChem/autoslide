@@ -20,12 +20,13 @@ from . import document, text, tables, lists, images, icons, equations, code
 
 
 class BeamerGenerator:
-    def __init__(self, output_dir=".", no_cache=False):
+    def __init__(self, output_dir=".", no_cache=False, tracing=False):
         self.node_counter = 0
         self.output_dir = output_dir
         self.cache_file = os.path.join(output_dir, ".autoslide.cache")
         self._slide_cache = None
         self.no_cache = no_cache
+        self.tracing = tracing
 
     def _load_cache(self) -> Dict[str, str]:
         """Load slide cache from disk. Returns empty dict if cache doesn't exist or is corrupted."""
@@ -97,7 +98,7 @@ class BeamerGenerator:
         latex_parts = []
 
         # Document header
-        latex_parts.append(document.generate_header(title))
+        latex_parts.append(document.generate_header(title, tracing=self.tracing))
 
         # Process each slide
         for slide in slides:
@@ -223,7 +224,9 @@ class BeamerGenerator:
         if cache_hash in cache:
             return cache[cache_hash]
 
-        # Cache miss - generate the slide
+        # Cache miss (or tracing mode — never serve cached output for tracing builds)
+        if self.tracing:
+            return self._generate_slide_uncached(blocks)
         latex_source = self._generate_slide_uncached(blocks)
 
         # Save to cache
@@ -458,24 +461,34 @@ class BeamerGenerator:
             latex_output, self.node_counter = equations.format_annotated_equation(
                 block, has_columns, self.node_counter, self.output_dir
             )
-            return latex_output
         elif block.type == BlockType.TABLE:
-            return tables.format_table(block.content)
+            latex_output = tables.format_table(block.content)
         elif block.type == BlockType.LIST:
-            return lists.format_list(
+            latex_output = lists.format_list(
                 block.content, lambda x: icons.process_heading_icons(x, self.output_dir)
             )
         elif block.type == BlockType.IMAGE:
-            return images.format_image(block, has_columns, self.output_dir)
+            latex_output = images.format_image(block, has_columns, self.output_dir)
         elif block.type == BlockType.FOOTNOTE:
-            return f"\\footnote[{block.metadata['number']}]{{{block.content}}}"
+            latex_output = f"\\footnote[{block.metadata['number']}]{{{block.content}}}"
         elif block.type == BlockType.CODE:
             language = block.metadata.get("language", "text")
-            return code.format_code(block.content, language)
+            latex_output = code.format_code(block.content, language)
         elif block.type == BlockType.TEXT:
-            return text.format_text(block.content)
+            latex_output = text.format_text(block.content)
         else:
-            return block.content
+            latex_output = block.content
+
+        if self.tracing and block.type != BlockType.CODE:
+            latex_output = (
+                "\\begin{tcolorbox}[colframe=red,colback=white,boxrule=0.25pt,"
+                "boxsep=0pt,left=0pt,right=0pt,top=0pt,bottom=0pt,arc=0pt,"
+                "before skip=0pt,after skip=0pt]\n"
+                + latex_output
+                + "\n\\end{tcolorbox}"
+            )
+
+        return latex_output
 
     def _format_fake_footnotes(self, footnotes: List[Block]) -> str:
         """Format fake footnotes with starred footnotes first, then numbered ones with pipe separation."""
