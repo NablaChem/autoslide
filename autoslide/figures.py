@@ -77,7 +77,7 @@ PLOT_STYLE = {
     # Line and marker sizes
     "line_width": 2,
     "marker_size": 12,
-    "spine_width": 3,
+    "spine_width": 1,
     # Colors
     "ncblue": "#0A2D64",  # Navy blue color from beamer theme
     # Legend styling

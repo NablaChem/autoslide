@@ -13,7 +13,7 @@ def format_list(content: str, process_heading_icons=None) -> str:
     if first_line and not first_line.startswith("-"):
         # First line is a heading
         # Handle footnote references in heading
-        first_line = re.sub(r"\[\^(\d+)\]", r"\\footnotemark[\1]", first_line)
+        first_line = re.sub(r"\[\^([0-9,]+)\]", r"\\footnotemark[\1]", first_line)
         # Handle italic formatting in heading
         first_line = re.sub(r"\*([^*]+)\*", r"\\textit{\1}", first_line)
         # Handle icon syntax in heading if processor provided
@@ -36,7 +36,7 @@ def format_list(content: str, process_heading_icons=None) -> str:
             item_text = line[1:].strip()
             # Handle footnote references
             item_text = re.sub(
-                r"\[\^(\d+)\]",
+                r"\[\^([0-9,]+)\]",
                 r"\\footnotemark[\1]",
                 item_text,
             )
@@ -55,7 +55,7 @@ def format_list(content: str, process_heading_icons=None) -> str:
                 if lines[j].startswith(("  -", "\t-", "    -")):
                     sub_item_text = next_line[1:].strip()
                     sub_item_text = re.sub(
-                        r"\[\^(\d+)\]",
+                        r"\[\^([0-9,]+)\]",
                         r"\\footnotemark[\1]",
                         sub_item_text,
                     )
@@ -79,7 +79,6 @@ def format_list(content: str, process_heading_icons=None) -> str:
         list_lines.append("")
         list_lines.append(items_data[0][0])
         list_lines.append("")
-        list_lines.append("\\vspace{0.5em}")
     else:
         # Multiple items or items with sub-items: use itemize environment
         list_lines.append("\\vspace{-0.3em}\\begin{itemize}")
@@ -91,6 +90,5 @@ def format_list(content: str, process_heading_icons=None) -> str:
                     list_lines.append(f"\\item {sub_item}")
                 list_lines.append("\\end{itemize}")
         list_lines.append("\\end{itemize}")
-        list_lines.append("\\vspace{0.5em}")
 
     return "\n".join(list_lines)

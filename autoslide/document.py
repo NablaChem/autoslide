@@ -81,6 +81,9 @@ def generate_header(title: str, tracing: bool = False) -> str:
 \setlength{\belowdisplayskip}{0pt}
 \setlength{\abovedisplayshortskip}{0pt}
 \setlength{\belowdisplayshortskip}{0pt}
+\renewcommand{\footnotemark}[1][]{%
+  \textsuperscript{\textcolor{ncblue}{[#1]}}%
+}
 \begin{document}"""
     )
 

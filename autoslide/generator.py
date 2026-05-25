@@ -484,7 +484,7 @@ class BeamerGenerator:
                 "\\begin{tcolorbox}[colframe=red,colback=white,boxrule=0.25pt,"
                 "boxsep=0pt,left=0pt,right=0pt,top=0pt,bottom=0pt,arc=0pt,"
                 "before skip=0pt,after skip=0pt]\n"
-                + latex_output
+                + latex_output.rstrip()
                 + "\n\\end{tcolorbox}"
             )
 

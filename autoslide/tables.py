@@ -26,7 +26,7 @@ def format_table(content: str) -> str:
             ]
             # Handle footnote references in cells
             cells = [
-                re.sub(r"\[\^(\d+)\]", r"\\footnotemark[\1]", cell)
+                re.sub(r"\[\^([0-9,]+)\]", r"\\footnotemark[\1]", cell)
                 for cell in cells
             ]
             table_rows.append(cells)

@@ -79,11 +79,14 @@ def format_annotated_equation(block: Block, has_columns: bool = False, node_coun
     # Determine optimal placement for annotations
     heading_hint = f" [{heading[:40]}]" if heading else ""
     print(f"Placing annotations for equation{heading_hint}", file=sys.stderr, flush=True)
-    above_placements, below_placements = determine_annotation_placement(
-        annotated_equation, annotation_specs, node_names, has_columns, node_counter, output_dir
+    above_placements, below_placements, above_vspace_em, below_vspace_em = (
+        determine_annotation_placement(
+            annotated_equation, annotation_specs, node_names, has_columns, node_counter,
+            output_dir, equation_content=equation_content,
+        )
     )
 
-    # Convert placements to old format for existing tikzpicture generation
+    # Convert placements to label map for tikzpicture generation
     annotations_above = {}
     annotations_below = {}
     for i, (exact_string, label) in enumerate(annotation_specs, 1):
@@ -94,7 +97,7 @@ def format_annotated_equation(block: Block, has_columns: bool = False, node_coun
 
     # Generate tikzpicture with annotations
     if annotations_above or annotations_below:
-        tikz_code, space_requirements = generate_tikzpicture_annotations(
+        tikz_code, _ = generate_tikzpicture_annotations(
             annotations_above,
             annotations_below,
             node_names,
@@ -102,11 +105,12 @@ def format_annotated_equation(block: Block, has_columns: bool = False, node_coun
             below_placements,
         )
 
-        # Calculate required spacing
-        below_space = space_requirements["below"]
-
         # Generate the complete LaTeX output
         latex_parts = []
+
+        # Space above equation to contain above annotations within the tcolorbox bbox
+        if above_vspace_em > 0:
+            latex_parts.append(f"\\vspace{{{above_vspace_em:.2f}em}}")
 
         # Add the equation first so nodes are defined
         latex_parts.append(
@@ -116,14 +120,9 @@ def format_annotated_equation(block: Block, has_columns: bool = False, node_coun
         # Add annotation lines and text (background fill is now handled by tikzmarknode)
         latex_parts.extend(tikz_code)
 
-        # Add space below for below annotations (convert from pt to em: 1em ≈ 12pt)
-        if below_space > 0:
-            # Convert from pt to em and reduce by 2em
-            below_space_em = below_space / 12.0  # Convert pt to em
-            adjusted_below_space = max(0, below_space_em - 2)
-            latex_parts.append("")  # Empty line for proper spacing
-            if adjusted_below_space > 0:
-                latex_parts.append(f"\\vspace{{{adjusted_below_space:.1f}em}}")
+        # Space below equation to contain below annotations within the tcolorbox bbox
+        if below_vspace_em > 0:
+            latex_parts.append(f"\\vspace{{{below_vspace_em:.2f}em}}")
     else:
         # No annotations, just the equation
         latex_parts = [
@@ -225,36 +224,30 @@ def determine_annotation_placement(
     has_columns: bool = False,
     node_counter: int = 0,
     output_dir: str = ".",
-) -> Tuple[Dict[int, Tuple[float, str]], Dict[int, Tuple[float, str]]]:
+    equation_content: str = "",
+) -> Tuple[Dict[int, Tuple[float, str]], Dict[int, Tuple[float, str]], float, float]:
     """Determine optimal placement for annotations using bounding box analysis.
 
-    Args:
-        equation_with_nodes: LaTeX equation string with tikzmarknode wrappers already inserted
-        annotation_specs: List of (exact_string, label) tuples
-        node_names: Mapping from annotation position to node name
-
     Returns:
-        Tuple of (above_placements, below_placements) where each is a dict mapping
-        annotation position -> (vertical_coordinate_em, anchor_direction)
-        anchor_direction is either "base east" (right-aligned) or "base west" (left-aligned)
+        Tuple of (above_placements, below_placements, above_vspace_em, below_vspace_em)
     """
     if not annotation_specs:
-        return {}, {}
+        return {}, {}, 0.0, 0.0
 
     # Configuration - all values in pt (points)
     BASE_WIDTH_PT = 455.0  # Full page width in points
     if has_columns:
-        # Double column: subtract margin and halve
-        PAGE_WIDTH_PT = (BASE_WIDTH_PT - 20.0) / 2.0  # ~217.5 points per column
+        PAGE_WIDTH_PT = (BASE_WIDTH_PT - 20.0) / 2.0
     else:
-        PAGE_WIDTH_PT = BASE_WIDTH_PT  # Full width for single column
-    HORIZONTAL_PADDING_PT = 10.0  # Clearance around annotations in points
+        PAGE_WIDTH_PT = BASE_WIDTH_PT
+    HORIZONTAL_PADDING_PT = 10.0
 
-    # Step 1: Measure bounding boxes and node positions using LaTeX
+    # Step 1: Measure bounding boxes, node positions, and equation bbox using LaTeX
     try:
-        bounding_boxes, node_positions, node_shifts = (
+        bounding_boxes, node_positions, node_shifts, eq_dimensions = (
             measure_annotation_bounding_boxes(
-                equation_with_nodes, annotation_specs, node_names, node_counter, output_dir, has_columns
+                equation_with_nodes, annotation_specs, node_names, node_counter,
+                output_dir, has_columns, equation_content=equation_content,
             )
         )
     except Exception as e:
@@ -275,7 +268,33 @@ def determine_annotation_placement(
         has_columns,
     )
 
-    return above_placements, below_placements
+    # Step 3: Compute exact vspaces from measured equation bbox and annotation levels.
+    # Each annotation's extent above/below the equation baseline is:
+    #   above: node_shift + level  (node_shift >= 0 for above annotations)
+    #   below: -node_shift + level (node_shift <= 0 for below annotations)
+    # Add ANNOT_TEXT_BUFFER_PT to cover the annotation text height beyond the line endpoint.
+    eq_height, eq_depth = eq_dimensions
+    ANNOT_TEXT_BUFFER_PT = 5.0  # covers annotation text height above/below the line endpoint
+
+    if above_placements:
+        max_above = max(
+            node_shifts.get(i, 0.0) + level + ANNOT_TEXT_BUFFER_PT
+            for i, (level, _) in above_placements.items()
+        )
+        above_vspace_em = max(0.0, (max_above - eq_height) / 12.0)
+    else:
+        above_vspace_em = 0.0
+
+    if below_placements:
+        max_below = max(
+            -node_shifts.get(i, 0.0) + level + ANNOT_TEXT_BUFFER_PT
+            for i, (level, _) in below_placements.items()
+        )
+        below_vspace_em = max(0.0, (max_below - eq_depth) / 12.0)
+    else:
+        below_vspace_em = 0.0
+
+    return above_placements, below_placements, above_vspace_em, below_vspace_em
 
 
 def measure_annotation_bounding_boxes(
@@ -285,14 +304,16 @@ def measure_annotation_bounding_boxes(
     node_counter: int,
     output_dir: str = ".",
     has_columns: bool = False,
-) -> Tuple[Dict[int, Tuple[float, float]], Dict[int, float], Dict[int, float]]:
+    equation_content: str = "",
+) -> Tuple[Dict[int, Tuple[float, float]], Dict[int, float], Dict[int, float], Tuple[float, float]]:
     """Measure bounding boxes of annotation text and tikzmarknode positions using LaTeX.
 
     Returns:
-        Tuple of (bounding_boxes, node_positions, node_shifts) where:
+        Tuple of (bounding_boxes, node_positions, node_shifts, eq_dimensions) where:
         - bounding_boxes: Dict mapping annotation index -> (width_pt, height_pt)
         - node_positions: Dict mapping annotation index -> x_position_pt
         - node_shifts: Dict mapping annotation index -> y_shift_from_baseline_pt
+        - eq_dimensions: (height_pt, depth_pt) of the equation box
     """
     import tempfile
     import os
@@ -306,7 +327,8 @@ def measure_annotation_bounding_boxes(
     try:
         # Create a temporary LaTeX document to measure all annotations
         measurement_latex, _ = create_measurement_document(
-            equation_with_nodes, annotation_specs, node_names, node_counter, has_columns
+            equation_with_nodes, annotation_specs, node_names, node_counter, has_columns,
+            equation_content=equation_content,
         )
 
         # Write to temporary file in the temporary directory
@@ -337,18 +359,11 @@ def measure_annotation_bounding_boxes(
         # Parse measurements from log file
         log_path = os.path.join(temp_dir, "measurement.log")
 
-        # Debug output removed
-
-        bounding_boxes, node_positions, node_shifts = (
+        bounding_boxes, node_positions, node_shifts, eq_dimensions = (
             parse_measurements_from_log(log_path, len(annotation_specs))
         )
 
-        # Debug: print measurements (only if verbose mode enabled)
-        # print(f"Debug: Measured bounding boxes: {bounding_boxes}", file=sys.stderr)
-        # print(f"Debug: Measured node positions: {node_positions}", file=sys.stderr)
-        # print(f"Debug: Measured node shifts: {node_shifts}", file=sys.stderr)
-
-        return bounding_boxes, node_positions, node_shifts
+        return bounding_boxes, node_positions, node_shifts, eq_dimensions
 
     finally:
         # Clean up entire temporary directory
@@ -364,6 +379,7 @@ def create_measurement_document(
     node_names: Dict[int, str],
     node_counter: int,
     has_columns: bool = False,
+    equation_content: str = "",
 ) -> Tuple[str, int]:
     """Create LaTeX document for measuring annotation bounding boxes."""
     # Use exactly the same preamble as the main document
@@ -430,6 +446,7 @@ def create_measurement_document(
 
 \begin{document}
 \newlength{\tempx}
+\newsavebox{\eqmeasurebox}
 \begin{frame}[t]
 \scriptsize
 """
@@ -489,6 +506,20 @@ def create_measurement_document(
 """
         )
 
+    # Measure equation bounding box using an hbox with displaystyle math.
+    # \ht gives height above the math baseline, \dp gives depth below — the same
+    # coordinate origin as the TikZ node_shifts (which are relative to the baseline node).
+    # \vbox would put the baseline at the box bottom, making \ht = total height and \dp = 0,
+    # which is incompatible with the TikZ coordinate system.
+    eq_to_measure = equation_content if equation_content else equation_with_nodes
+    measurement_commands.append(
+        f"""
+% Measure equation bounding box (height above math baseline, depth below math baseline)
+\\sbox{{\\eqmeasurebox}}{{$\\displaystyle\\begin{{aligned}}{eq_to_measure}\\end{{aligned}}$}}
+\\typeout{{EQMEASURE: height=\\the\\ht\\eqmeasurebox, depth=\\the\\dp\\eqmeasurebox}}
+"""
+    )
+
     # Add position measurements for each node using tikz coordinate extraction
     # These need to be after the equation is rendered so the nodes exist
     position_measurements = []
@@ -541,14 +572,15 @@ def create_measurement_document(
 
 def parse_measurements_from_log(
     log_path: str, num_annotations: int
-) -> Tuple[Dict[int, Tuple[float, float]], Dict[int, float], Dict[int, float]]:
+) -> Tuple[Dict[int, Tuple[float, float]], Dict[int, float], Dict[int, float], Tuple[float, float]]:
     """Parse bounding box measurements and node positions from LaTeX log file.
 
     Returns:
-        Tuple of (bounding_boxes, node_positions, node_shifts) where:
+        Tuple of (bounding_boxes, node_positions, node_shifts, eq_dimensions) where:
         - bounding_boxes: Dict mapping annotation index -> (width_pt, height_pt)
         - node_positions: Dict mapping annotation index -> x_position_pt
         - node_shifts: Dict mapping annotation index -> y_shift_from_baseline_pt
+        - eq_dimensions: (height_pt, depth_pt) of the equation box
     """
     bounding_boxes = {}
     node_positions = {}
@@ -597,7 +629,17 @@ def parse_measurements_from_log(
             # Calculate shift from baseline (positive means above baseline)
             node_shifts[i] = y_pt - baseline_y
 
-    return bounding_boxes, node_positions, node_shifts
+    # Parse equation bounding box measurement
+    eq_height = 0.0
+    eq_depth = 0.0
+    eq_match = re.search(r"EQMEASURE: height=([0-9.]+)pt, depth=([0-9.]+)pt", log_content)
+    if eq_match:
+        eq_height = float(eq_match.group(1))
+        eq_depth = float(eq_match.group(2))
+    else:
+        print("Warning: Could not find equation bbox measurement (EQMEASURE)", file=sys.stderr)
+
+    return bounding_boxes, node_positions, node_shifts, (eq_height, eq_depth)
 
 
 def find_optimal_placement(
