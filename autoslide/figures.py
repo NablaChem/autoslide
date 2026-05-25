@@ -6,13 +6,14 @@ import subprocess
 from .models import BlockType
 
 
-def compute_figure_hash(code: str, block_type: BlockType, has_columns: bool) -> str:
+def compute_figure_hash(code: str, block_type: BlockType, has_columns: bool, is_poster: bool = False) -> str:
     """Hash all inputs that determine the figure's visual output."""
     data = json.dumps(
         {
             "code": code,
             "block_type": block_type.value,
             "has_columns": has_columns,
+            "is_poster": is_poster,
             "style": {k: list(v) if isinstance(v, tuple) else v for k, v in PLOT_STYLE.items()},
         },
         sort_keys=True,
@@ -26,10 +27,11 @@ def generate_figure_file(
     filename: str,
     has_columns: bool = False,
     output_dir: str = ".",
+    is_poster: bool = False,
 ):
     """Generate a single figure file with the specified parameters."""
     # Create Python script for subplot execution (filename relative to output_dir)
-    python_script = create_matplotlib_script(code, block_type, filename, has_columns)
+    python_script = create_matplotlib_script(code, block_type, filename, has_columns, is_poster)
 
     # Write script to temporary file
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as temp_file:
@@ -65,6 +67,8 @@ PLOT_STYLE = {
     # Figure sizes
     "figsize_single_column": (10, 5.625),  # 16:9 aspect ratio
     "figsize_two_column": (8, 8),  # 4:3 aspect ratio
+    "figsize_poster_single": (14, 10),  # A0 half-column, no sub-columns
+    "figsize_poster_columns": (8, 8),  # A0 half-column with -|- sub-columns
     # Font sizes (doubled for better readability)
     "font_size": 20,  # General font size
     "label_size": 25,  # Axis labels
@@ -87,11 +91,14 @@ def create_matplotlib_script(
     block_type: BlockType,
     output_filename: str,
     has_columns: bool = False,
+    is_poster: bool = False,
 ) -> str:
     """Create complete Python script for matplotlib figure generation."""
 
     # Determine figure parameters based on layout
-    if has_columns:
+    if is_poster:
+        figsize = str(PLOT_STYLE["figsize_poster_columns" if has_columns else "figsize_poster_single"])
+    elif has_columns:
         figsize = str(PLOT_STYLE["figsize_two_column"])
     else:
         figsize = str(PLOT_STYLE["figsize_single_column"])

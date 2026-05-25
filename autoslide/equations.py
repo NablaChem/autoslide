@@ -623,7 +623,7 @@ def find_optimal_placement(
         # Use 15pt spacing between levels as specified
         base_level_pt = 15.0  # First level at 15pt below equation
         levels_below = [base_level_pt + i * 15.0 for i in range(num_levels)]
-        levels_above = [20.0]
+        levels_above = [20.0 + i * 15.0 for i in range(num_levels)]
 
         # Try all combinations for this number of levels
         all_combinations = generate_placement_combinations(

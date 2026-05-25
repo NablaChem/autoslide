@@ -6,36 +6,45 @@ import shutil
 
 from .parser import MarkdownBeamerParser
 from .generator import BeamerGenerator
+from .poster_generator import PosterGenerator
 
 
 @click.command()
 @click.argument("markdown_file", type=click.Path(exists=True, readable=True))
 @click.option("--no-cache", is_flag=True, help="Disable reading from cache (writing to cache still enabled)")
-def main(markdown_file, no_cache):
-    """Convert markdown file to LaTeX beamer presentation."""
+@click.option("--poster/--no-poster", default=None, help="Force poster or slide mode (default: auto-detect)")
+def main(markdown_file, no_cache, poster):
+    """Convert markdown file to LaTeX beamer presentation or A0 poster."""
 
-    # Create output directory based on input filename
     base_name = os.path.splitext(os.path.basename(markdown_file))[0]
-    output_dir = f"{base_name}-autoslide"
-
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Output filename
-    output_file = os.path.join(output_dir, f"{base_name}.tex")
 
     # Read the markdown file
     with open(markdown_file, "r", encoding="utf-8") as f:
         markdown_content = f.read()
 
-    # Parse and generate
+    # Parse — output_dir is set after mode detection, so use a temp dir first
+    # then re-parse with the correct output_dir. Simpler: parse twice only if
+    # figures need regeneration. Instead, detect mode from raw text.
+    is_poster_file = poster
+    if is_poster_file is None:
+        is_poster_file = "=|=" in markdown_content or "===" in markdown_content
+
+    output_dir = f"{base_name}-autoposter" if is_poster_file else f"{base_name}-autoslide"
+    os.makedirs(output_dir, exist_ok=True)
+    output_file = os.path.join(output_dir, f"{base_name}.tex")
+
     parser = MarkdownBeamerParser(markdown_file, output_dir)
     slides = parser.parse(markdown_content)
 
-    print(f"Parsed {len(slides)} slides", file=sys.stderr)
+    mode = "poster" if is_poster_file else "slides"
+    print(f"Parsed {len(slides)} slides ({mode} mode)", file=sys.stderr)
 
-    generator = BeamerGenerator(output_dir, no_cache=no_cache)
-    latex_output = generator.generate_beamer(slides, "My Presentation")
+    if is_poster_file:
+        generator = PosterGenerator(output_dir, no_cache=no_cache)
+        latex_output = generator.generate_poster(slides)
+    else:
+        generator = BeamerGenerator(output_dir, no_cache=no_cache)
+        latex_output = generator.generate_beamer(slides, base_name)
 
     # Write output to file
     with open(output_file, "w", encoding="utf-8") as f:

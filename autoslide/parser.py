@@ -18,6 +18,7 @@ class MarkdownBeamerParser:
         self.input_filename = input_filename
         self.output_dir = output_dir
         self.pending_figures = []  # Store figure info for later generation
+        self.is_poster = False
 
     def parse(self, markdown_text: str) -> List[List[Block]]:
         """Parse markdown text and return list of slides, each containing blocks."""
@@ -159,6 +160,32 @@ class MarkdownBeamerParser:
                 i += 1
                 continue
 
+            # Check for poster column break (=|=): flush current slide, start sentinel slide
+            if line == "=|=":
+                if current_block_lines:
+                    self._process_block_lines(current_block_lines, current_block_start_line, current_block_source_file)
+                    current_block_lines = []
+                    current_block_start_line = None
+                    current_block_source_file = None
+                self._finish_current_slide()
+                self.is_poster = True
+                self.current_slide_blocks.append(Block(BlockType.POSTER_COLUMN_BREAK, ""))
+                i += 1
+                continue
+
+            # Check for poster column close (===): flush current slide, start sentinel slide
+            if line == "===":
+                if current_block_lines:
+                    self._process_block_lines(current_block_lines, current_block_start_line, current_block_source_file)
+                    current_block_lines = []
+                    current_block_start_line = None
+                    current_block_source_file = None
+                self._finish_current_slide()
+                self.is_poster = True
+                self.current_slide_blocks.append(Block(BlockType.POSTER_COLUMN_CLOSE, ""))
+                i += 1
+                continue
+
             # Check for footnote definition (numbered or starred)
             if re.match(r"^\[[\d\*]+\] ", line):
                 if current_block_lines:
@@ -237,6 +264,9 @@ class MarkdownBeamerParser:
 
         # Generate all pending figures now that we know each slide's layout
         self._generate_all_pending_figures()
+
+        if self.is_poster:
+            self._validate_poster()
 
         return self.slides
 
@@ -363,7 +393,7 @@ class MarkdownBeamerParser:
             code = figure_info["code"]
             block_type = figure_info["block_type"]
 
-            hash_str = figures.compute_figure_hash(code, block_type, has_columns)
+            hash_str = figures.compute_figure_hash(code, block_type, has_columns, is_poster=self.is_poster)
             hash_filename = f"{hash_str}.pdf"
             hash_path = os.path.join(generated_dir, hash_filename)
 
@@ -373,7 +403,7 @@ class MarkdownBeamerParser:
 
             if not os.path.exists(hash_path):
                 figures.generate_figure_file(
-                    code, block_type, hash_filename, has_columns, generated_dir
+                    code, block_type, hash_filename, has_columns, generated_dir, is_poster=self.is_poster
                 )
 
         # Delete stale generated figures not used in this run
@@ -480,6 +510,18 @@ class MarkdownBeamerParser:
                 if i > 0 and "|" in lines[i - 1]:
                     return True
         return False
+
+    def _validate_poster(self):
+        """Raise ValueError if any slide mixes a poster separator with other content."""
+        poster_sep_types = {BlockType.POSTER_COLUMN_BREAK, BlockType.POSTER_COLUMN_CLOSE}
+        for slide in self.slides:
+            has_sep = any(b.type in poster_sep_types for b in slide)
+            has_other = any(b.type not in poster_sep_types for b in slide)
+            if has_sep and has_other:
+                raise ValueError(
+                    "A poster separator (=|= or ===) must stand alone between box titles, "
+                    "with no other content on the same slide."
+                )
 
     def _finish_current_slide(self):
         """Finish current slide and add to slides list."""

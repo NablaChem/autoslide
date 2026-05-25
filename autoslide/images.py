@@ -1,7 +1,7 @@
 from .models import Block
 
 
-def format_image(block: Block, has_columns: bool = False, output_dir: str = ".") -> str:
+def format_image(block: Block, has_columns: bool = False, output_dir: str = ".", is_poster: bool = False) -> str:
     """Format image block with auto-scaling and plain grey caption."""
     image_file = block.content
     caption = block.metadata.get("caption", "")
@@ -13,8 +13,12 @@ def format_image(block: Block, has_columns: bool = False, output_dir: str = ".")
         image_file = parts[0]
         scale_factor = float(parts[1])
 
-    # Use different base scaling for single-column vs two-column layouts
-    if has_columns:
+    # Use different base scaling for poster vs slide layouts
+    if is_poster:
+        width_limit = 0.95
+        height_limit = 0.55
+        shift_up = 0
+    elif has_columns:
         # Two-column layout: use linewidth (fits within column)
         width_limit = 1.0
         height_limit = 0.7

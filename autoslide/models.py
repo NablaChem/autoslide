@@ -19,6 +19,8 @@ class BlockType(Enum):
     PLOT = "plot"
     SCHEMATIC = "schematic"
     CODE = "code"
+    POSTER_COLUMN_BREAK = "poster_column_break"
+    POSTER_COLUMN_CLOSE = "poster_column_close"
 
 
 @dataclass
