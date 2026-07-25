@@ -476,7 +476,7 @@ class MarkdownBeamerParser:
             # Check that all lines after the first are either empty or proper list items
             lines_after_heading = lines[1:]
             has_proper_heading = all(
-                not line.strip() or re.match(r"^\s*-\s", line)
+                not line.strip() or re.match(r"^\s*-(\s|$)", line)
                 for line in lines_after_heading
             )
 

@@ -39,9 +39,8 @@ def format_image(block: Block, has_columns: bool = False, output_dir: str = ".",
     else:
         image_path = f"../assets/{image_file}"
 
+    caption_latex = f"\n\\vspace{{-1em}}\n\\textcolor{{gray}}{{{caption}}}" if caption else ""
     return f"""\\begin{{center}}
     \\vspace{{{shift_up}em}}
 \\includegraphics[{width_setting},{height_setting},keepaspectratio]{{{image_path}}}
-\\end{{center}}
-\\vspace{{-1em}}
-\\textcolor{{gray}}{{{caption}}}"""
+\\end{{center}}{caption_latex}"""

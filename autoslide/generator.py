@@ -179,12 +179,9 @@ class BeamerGenerator:
         has_columns: bool,
     ) -> None:
         """Process blocks within a single section."""
-        for block in blocks:
-            if block.type in [
-                BlockType.SLIDE_TITLE,
-                BlockType.FOOTLINE,
-                BlockType.FOOTNOTE,
-            ]:
+        skip_types = {BlockType.SLIDE_TITLE, BlockType.FOOTLINE, BlockType.FOOTNOTE}
+        for i, block in enumerate(blocks):
+            if block.type in skip_types:
                 continue
             elif block.type == BlockType.SECTION:
                 slide_parts.append(f"\\section{{{block.content}}}")
@@ -192,7 +189,15 @@ class BeamerGenerator:
                 slide_parts.append("\\end{column}")
                 slide_parts.append("\\begin{column}[t]{0.484\\textwidth}")
             else:
-                slide_parts.append(self._format_block(block, has_columns))
+                formatted = self._format_block(block, has_columns)
+                if block.type == BlockType.LIST and formatted.endswith("\\\\[0pt]"):
+                    next_block = next(
+                        (b for b in blocks[i + 1 :] if b.type not in skip_types),
+                        None,
+                    )
+                    if next_block and next_block.type == BlockType.LIST:
+                        formatted = formatted[: -len("\\\\[0pt]")] + "\\\\[0.5em]"
+                slide_parts.append(formatted)
 
     def _finalize_slide(self, slide_parts: List[str], footnotes: List[Block]):
         """Finalize slide with vfill and footnotes."""

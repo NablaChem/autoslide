@@ -75,10 +75,12 @@ def format_list(content: str, process_heading_icons=None) -> str:
 
     # Check if we have only one item with no sub-items
     if len(items_data) == 1 and not items_data[0][1]:
-        # Single item with no sub-items: place text directly without itemize
-        list_lines.append("")
-        list_lines.append(items_data[0][0])
-        list_lines.append("")
+        # Use \\[0pt] line breaks so consecutive single-item blocks stay in one
+        # LaTeX paragraph (no \parskip gaps) while each line starts on its own line.
+        if list_lines:
+            list_lines[-1] += "\\\\[0pt]"
+        if items_data[0][0]:
+            list_lines.append(items_data[0][0] + "\\\\[0pt]")
     else:
         # Multiple items or items with sub-items: use itemize environment
         list_lines.append("\\vspace{-0.3em}\\begin{itemize}")
