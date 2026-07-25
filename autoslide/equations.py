@@ -11,8 +11,13 @@ import tempfile
 import os
 import subprocess
 import shutil
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from .models import Block
+from . import ink
+
+# Raster ink-collision configuration (see determine_annotation_placement).
+INK_DPI = 300
+CLEARANCE_PT = 3.0
 
 
 def format_annotated_equation(block: Block, has_columns: bool = False, node_counter: int = 0, output_dir: str = ".") -> Tuple[str, int]:
@@ -244,7 +249,7 @@ def determine_annotation_placement(
 
     # Step 1: Measure bounding boxes, node positions, and equation bbox using LaTeX
     try:
-        bounding_boxes, node_positions, node_shifts, eq_dimensions = (
+        bounding_boxes, node_positions, node_shifts, eq_dimensions, eq_ink = (
             measure_annotation_bounding_boxes(
                 equation_with_nodes, annotation_specs, node_names, node_counter,
                 output_dir, has_columns, equation_content=equation_content,
@@ -266,6 +271,7 @@ def determine_annotation_placement(
         HORIZONTAL_PADDING_PT,
         node_shifts,
         has_columns,
+        eq_ink=eq_ink,
     )
 
     # Step 3: Compute exact vspaces from measured equation bbox and annotation levels.
@@ -305,15 +311,24 @@ def measure_annotation_bounding_boxes(
     output_dir: str = ".",
     has_columns: bool = False,
     equation_content: str = "",
-) -> Tuple[Dict[int, Tuple[float, float]], Dict[int, float], Dict[int, float], Tuple[float, float]]:
-    """Measure bounding boxes of annotation text and tikzmarknode positions using LaTeX.
+) -> Tuple[
+    Dict[int, Tuple[float, float]],
+    Dict[int, float],
+    Dict[int, float],
+    Tuple[float, float],
+    Optional[ink.EquationInk],
+]:
+    """Measure bounding boxes of annotation text and tikzmarknode positions using LaTeX,
+    and rasterize the compiled equation to build an ink-collision mask.
 
     Returns:
-        Tuple of (bounding_boxes, node_positions, node_shifts, eq_dimensions) where:
+        Tuple of (bounding_boxes, node_positions, node_shifts, eq_dimensions, eq_ink) where:
         - bounding_boxes: Dict mapping annotation index -> (width_pt, height_pt)
         - node_positions: Dict mapping annotation index -> x_position_pt
         - node_shifts: Dict mapping annotation index -> y_shift_from_baseline_pt
         - eq_dimensions: (height_pt, depth_pt) of the equation box
+        - eq_ink: EquationInk with the dilated ink mask + coordinate metadata, or
+          None if rasterization failed (callers should fall back to eq_dimensions only)
     """
     import tempfile
     import os
@@ -359,11 +374,22 @@ def measure_annotation_bounding_boxes(
         # Parse measurements from log file
         log_path = os.path.join(temp_dir, "measurement.log")
 
-        bounding_boxes, node_positions, node_shifts, eq_dimensions = (
+        bounding_boxes, node_positions, node_shifts, eq_dimensions, page_size_pt, baseline_y = (
             parse_measurements_from_log(log_path, len(annotation_specs))
         )
 
-        return bounding_boxes, node_positions, node_shifts, eq_dimensions
+        eq_ink = None
+        page_width_pt, page_height_pt = page_size_pt
+        if page_height_pt > 0:
+            try:
+                pdf_path = os.path.join(temp_dir, "measurement.pdf")
+                eq_ink = ink.build_equation_ink(
+                    pdf_path, baseline_y, INK_DPI, CLEARANCE_PT
+                )
+            except Exception as e:
+                print(f"Warning: could not build equation ink mask: {e}", file=sys.stderr)
+
+        return bounding_boxes, node_positions, node_shifts, eq_dimensions, eq_ink
 
     finally:
         # Clean up entire temporary directory
@@ -448,7 +474,7 @@ def create_measurement_document(
 \newlength{\tempx}
 \newsavebox{\eqmeasurebox}
 \begin{frame}[t]
-\scriptsize
+\typeout{PAGESIZE: width=\the\paperwidth, height=\the\paperheight}
 """
 
     # Add column setup if needed
@@ -572,15 +598,25 @@ def create_measurement_document(
 
 def parse_measurements_from_log(
     log_path: str, num_annotations: int
-) -> Tuple[Dict[int, Tuple[float, float]], Dict[int, float], Dict[int, float], Tuple[float, float]]:
+) -> Tuple[
+    Dict[int, Tuple[float, float]],
+    Dict[int, float],
+    Dict[int, float],
+    Tuple[float, float],
+    Tuple[float, float],
+    float,
+]:
     """Parse bounding box measurements and node positions from LaTeX log file.
 
     Returns:
-        Tuple of (bounding_boxes, node_positions, node_shifts, eq_dimensions) where:
+        Tuple of (bounding_boxes, node_positions, node_shifts, eq_dimensions, page_size_pt, baseline_y) where:
         - bounding_boxes: Dict mapping annotation index -> (width_pt, height_pt)
         - node_positions: Dict mapping annotation index -> x_position_pt
         - node_shifts: Dict mapping annotation index -> y_shift_from_baseline_pt
         - eq_dimensions: (height_pt, depth_pt) of the equation box
+        - page_size_pt: (paperwidth_pt, paperheight_pt) of the beamer frame
+        - baseline_y: absolute y-position (in the tikz "current page" coordinate
+          system) of the equation's baseline node
     """
     bounding_boxes = {}
     node_positions = {}
@@ -639,7 +675,121 @@ def parse_measurements_from_log(
     else:
         print("Warning: Could not find equation bbox measurement (EQMEASURE)", file=sys.stderr)
 
-    return bounding_boxes, node_positions, node_shifts, (eq_height, eq_depth)
+    page_width_pt = 0.0
+    page_height_pt = 0.0
+    page_match = re.search(
+        r"PAGESIZE: width=([0-9.]+)pt, height=([0-9.]+)pt", log_content
+    )
+    if page_match:
+        page_width_pt = float(page_match.group(1))
+        page_height_pt = float(page_match.group(2))
+    else:
+        print("Warning: Could not find page size measurement (PAGESIZE)", file=sys.stderr)
+
+    return (
+        bounding_boxes,
+        node_positions,
+        node_shifts,
+        (eq_height, eq_depth),
+        (page_width_pt, page_height_pt),
+        baseline_y,
+    )
+
+
+LEADER_HALF_WIDTH_PT = 2.0
+LEADER_CLEARANCE_PT = 2.0
+MAX_BACKTRACK_VISITS = 500_000  # safety valve against pathological inputs
+
+
+def _annotation_option_obstacles(
+    i: int,
+    position: str,
+    level: float,
+    anchor: str,
+    bounding_boxes: Dict[int, Tuple[float, float]],
+    node_positions: Dict[int, float],
+    node_shifts: Dict[int, float],
+    baseline_y: float,
+    page_width_pt: float,
+    horizontal_padding_pt: float,
+    has_columns: bool,
+    eq_ink,
+):
+    """Build (label_rect, leader_rect) for one candidate (position, level, anchor)
+    placement of annotation i, checked in isolation (forced side, page margin,
+    equation ink). Returns None if this option is invalid regardless of what else
+    is placed. Returns (None, None) if there's nothing to check (no measured
+    geometry for this annotation) - such an option never conflicts with anything."""
+    if node_shifts[i] < 0 and position == "above":
+        return None
+    if node_shifts[i] > 0 and position == "below":
+        return None
+    if i not in bounding_boxes or i not in node_positions:
+        return (None, None)
+
+    left_margin = 5.0 if has_columns else 20.0
+    right_margin = left_margin
+
+    width_pt, height_pt = bounding_boxes[i]
+    node_x = node_positions[i]
+    padded_width = width_pt + horizontal_padding_pt
+
+    # Only the label's growing edge (away from the node) is a placement choice
+    # and gets margin-checked; the anchor-side edge is just the symbol's own
+    # fixed position, which annotation placement has no control over.
+    if anchor == "base west":  # Left-aligned text extends right from node
+        left_bound = node_x
+        right_bound = node_x + padded_width
+        if right_bound > page_width_pt - right_margin:
+            return None
+    else:  # "base east" - Right-aligned text extends left from node
+        left_bound = node_x - padded_width
+        right_bound = node_x
+        if left_bound < left_margin:
+            return None
+
+    # node_shifts is y_pt - baseline_y in the raw "current page" coordinate
+    # system, which (verified empirically by rendering a known superscript/
+    # subscript pair and checking where they land on the rasterized page)
+    # increases *downward* - the opposite of the "positive means above"
+    # convention its own docstring assumes. Negate it here so "above"/"below"
+    # below correctly mean smaller/larger raw y (and therefore smaller/larger
+    # pixel row, matching ink.pt_to_px's direct y*scale).
+    node_y = baseline_y - node_shifts[i]
+    if position == "above":
+        near_y, far_y = node_y - level, node_y - level - height_pt
+    else:
+        near_y, far_y = node_y + level, node_y + level + height_pt
+    bottom, top = (near_y, far_y) if near_y <= far_y else (far_y, near_y)
+
+    label_rect = (left_bound, right_bound, bottom, top)
+
+    if eq_ink is not None and ink.equation_ink_overlaps_rect(
+        eq_ink, left_bound, right_bound, bottom, top
+    ):
+        return None
+
+    leader_bottom, leader_top = (node_y, near_y) if node_y <= near_y else (near_y, node_y)
+    leader_rect = (
+        node_x - LEADER_HALF_WIDTH_PT,
+        node_x + LEADER_HALF_WIDTH_PT,
+        leader_bottom,
+        leader_top,
+    )
+
+    return (label_rect, leader_rect)
+
+
+def _obstacles_conflict(rect_a, is_leader_a, rect_b, is_leader_b) -> bool:
+    """Buffered rectangle overlap - catches close (including diagonal) contacts.
+    A pair where either side is a leader line uses a smaller clearance, since
+    leader lines are already thin by design."""
+    l1, r1, b1, t1 = rect_a
+    l2, r2, b2, t2 = rect_b
+    clearance = LEADER_CLEARANCE_PT if (is_leader_a or is_leader_b) else CLEARANCE_PT
+    el1, er1 = l1 - clearance, r1 + clearance
+    eb1, et1 = b1 - clearance, t1 + clearance
+    return el1 < r2 and er1 > l2 and eb1 < t2 and et1 > b2
 
 
 def find_optimal_placement(
@@ -651,49 +801,118 @@ def find_optimal_placement(
     horizontal_padding_pt: float,
     node_shifts: Dict[int, float],
     has_columns: bool = False,
+    eq_ink=None,
 ) -> Tuple[Dict[int, Tuple[float, str]], Dict[int, Tuple[float, str]]]:
-    """Find optimal placement using brute force search with minimal vertical levels."""
-    from itertools import product
+    """Find optimal placement using a pruned backtracking search over a fixed,
+    regularly-spaced grid of levels.
 
+    Annotations are free to end up above or below the equation (whichever a given
+    node's position allows). Options are tried cheapest-level-first and a
+    branch-and-bound cutoff on total vertical space keeps the search from ever
+    materializing the full cartesian product of placement choices - which, with
+    8+ annotations and a handful of levels, is far too large to enumerate.
+    """
     num_annotations = len(annotation_specs)
+    baseline_y = eq_ink.baseline_y if eq_ink is not None else 0.0
+    indices = list(range(1, num_annotations + 1))
 
-    # Simple brute force: try increasing number of levels until we find a solution
-    max_attempts = 5  # Safety limit
+    max_attempts = 8  # Safety limit on how many level tiers to try
+    LEVEL_STEP_PT = 7.5  # spacing between successive levels (halved from 15pt)
 
     for num_levels in range(1, max_attempts + 1):
-        # Try with num_levels below the equation (keep it simple - only below for now)
-        # Use 15pt spacing between levels as specified
+        # Regular, fixed-step grid of levels. The innermost distance (equation
+        # to first level) is unchanged; only the spacing between subsequent
+        # levels is halved.
         base_level_pt = 15.0  # First level at 15pt below equation
-        levels_below = [base_level_pt + i * 15.0 for i in range(num_levels)]
-        levels_above = [20.0 + i * 15.0 for i in range(num_levels)]
+        levels_below = [base_level_pt + i * LEVEL_STEP_PT for i in range(num_levels)]
+        levels_above = [20.0 + i * LEVEL_STEP_PT for i in range(num_levels)]
 
-        # Try all combinations for this number of levels
-        all_combinations = generate_placement_combinations(
-            num_annotations, levels_above, levels_below
-        )
-        for combination in all_combinations:
-            if check_placement_validity(
-                combination,
-                bounding_boxes,
-                node_positions,
-                page_width_pt,
-                horizontal_padding_pt,
-                node_shifts,
-                has_columns,
-            ):
-                # Found valid placement with num_levels levels
-                above_placements = {}
-                below_placements = {}
+        options_per_annotation = {}
+        for i in indices:
+            opts = []
+            for position, levels in (("above", levels_above), ("below", levels_below)):
+                for level in levels:
+                    for anchor in ("base west", "base east"):
+                        obs = _annotation_option_obstacles(
+                            i, position, level, anchor,
+                            bounding_boxes, node_positions, node_shifts, baseline_y,
+                            page_width_pt, horizontal_padding_pt, has_columns, eq_ink,
+                        )
+                        if obs is not None:
+                            opts.append((position, level, anchor, obs))
+            opts.sort(key=lambda o: o[1])  # cheapest level first: finds a good solution fast
+            options_per_annotation[i] = opts
 
-                # print(f"Debug: Found valid placement with {num_levels} levels: {combination}", file=sys.stderr)
-                for i, (position, level, anchor) in enumerate(combination, 1):
-                    if i in node_names:
-                        if position == "above":
-                            above_placements[i] = (level, anchor)
-                        else:  # position == "below"
-                            below_placements[i] = (level, anchor)
+        if any(not options_per_annotation[i] for i in indices):
+            continue  # some annotation has no viable option at all at this tier
 
-                return above_placements, below_placements
+        # Most-constrained-first ordering (classic CSP heuristic): annotations
+        # with fewer options are the likeliest to fail, so resolve them early.
+        order = sorted(indices, key=lambda i: len(options_per_annotation[i]))
+
+        best = {"combo": None, "cost": None}
+        placed_obstacles = []  # list of (is_leader, rect)
+        assignment = {}
+        visits = 0
+
+        def backtrack(pos_in_order, cur_above_max, cur_below_max):
+            nonlocal visits
+            visits += 1
+            if visits > MAX_BACKTRACK_VISITS:
+                return
+            if best["cost"] is not None and (cur_above_max + cur_below_max) >= best["cost"]:
+                return  # branch-and-bound: can't possibly beat the best found so far
+            if pos_in_order == len(order):
+                cost = cur_above_max + cur_below_max
+                if best["cost"] is None or cost < best["cost"]:
+                    best["cost"] = cost
+                    best["combo"] = dict(assignment)
+                return
+
+            i = order[pos_in_order]
+            for position, level, anchor, (label_rect, leader_rect) in options_per_annotation[i]:
+                new_above_max = max(cur_above_max, level) if position == "above" else cur_above_max
+                new_below_max = max(cur_below_max, level) if position == "below" else cur_below_max
+                if best["cost"] is not None and (new_above_max + new_below_max) >= best["cost"]:
+                    continue
+
+                conflict = False
+                if label_rect is not None:
+                    for is_leaderj, rectj in placed_obstacles:
+                        if _obstacles_conflict(label_rect, False, rectj, is_leaderj) or (
+                            _obstacles_conflict(leader_rect, True, rectj, is_leaderj)
+                        ):
+                            conflict = True
+                            break
+                if conflict:
+                    continue
+
+                assignment[i] = (position, level, anchor)
+                added = 0
+                if label_rect is not None:
+                    placed_obstacles.append((False, label_rect))
+                    placed_obstacles.append((True, leader_rect))
+                    added = 2
+                backtrack(pos_in_order + 1, new_above_max, new_below_max)
+                for _ in range(added):
+                    placed_obstacles.pop()
+                del assignment[i]
+
+                if visits > MAX_BACKTRACK_VISITS:
+                    return
+
+        backtrack(0, 0.0, 0.0)
+
+        if best["combo"] is not None:
+            above_placements = {}
+            below_placements = {}
+            for i, (position, level, anchor) in best["combo"].items():
+                if i in node_names:
+                    if position == "above":
+                        above_placements[i] = (level, anchor)
+                    else:
+                        below_placements[i] = (level, anchor)
+            return above_placements, below_placements
 
     # If we get here, no solution found within reasonable bounds
     print(
@@ -705,144 +924,6 @@ def find_optimal_placement(
         if i in node_names:
             below_placements[i] = (2.0 + i, "base west")
     return {}, below_placements
-
-
-def generate_placement_combinations(
-    num_annotations: int, levels_above: List[float], levels_below: List[float]
-) -> List[List[Tuple[str, float, str]]]:
-    """Generate all possible placement combinations - simple brute force."""
-    from itertools import product
-
-    # For each annotation, generate all possible (position, level, anchor) options
-    options_per_annotation = []
-
-    for i in range(num_annotations):
-        annotation_options = []
-
-        # Below positions (only using below for simplicity)
-        for level in levels_below:
-            annotation_options.append(
-                ("below", level, "base west")
-            )  # extends right
-            annotation_options.append(("below", level, "base east"))  # extends left
-
-        # Above positions (if any levels defined above)
-        for level in levels_above:
-            annotation_options.append(
-                ("above", level, "base west")
-            )  # extends right
-            annotation_options.append(("above", level, "base east"))  # extends left
-
-        options_per_annotation.append(annotation_options)
-
-    # Generate all combinations - no sorting, just return them in iterator order
-    combinations = list(product(*options_per_annotation))
-    return combinations
-
-
-def check_placement_validity(
-    combination: List[Tuple[str, float, str]],
-    bounding_boxes: Dict[int, Tuple[float, float]],
-    node_positions: Dict[int, float],
-    page_width_pt: float,
-    horizontal_padding_pt: float,
-    node_shifts: Dict[int, float],
-    has_columns: bool = False,
-) -> bool:
-    """Check if a placement combination is valid (no overlaps, fits in page width)."""
-    # Group annotations by position and level for collision detection
-    placements_by_level = {}
-
-    for i, (position, level, anchor) in enumerate(combination, 1):
-        if node_shifts[i] < 0 and position == "above":
-            # Node is below baseline, cannot place annotation above
-            return False
-        if node_shifts[i] > 0 and position == "below":
-            # Node is above baseline, cannot place annotation below
-            return False
-        if i not in bounding_boxes or i not in node_positions:
-            continue
-
-        width_pt, height_pt = bounding_boxes[i]
-        node_x = node_positions[i]
-        padded_width = width_pt + 1 * horizontal_padding_pt
-
-        # Calculate annotation bounds based on anchor
-        if anchor == "base west":  # Left-aligned text extends right from node
-            left_bound = node_x
-            right_bound = node_x + padded_width
-        else:  # "base east" - Right-aligned text extends left from node
-            left_bound = node_x - padded_width
-            right_bound = node_x
-
-        key = (position, level)
-        if key not in placements_by_level:
-            placements_by_level[key] = []
-
-        placements_by_level[key].append(
-            (i, left_bound, right_bound, anchor, padded_width)
-        )
-
-    # print(placements_by_level, file=sys.stderr)
-
-    # Check each level for overlaps and page width constraints
-    for (position, level), annotations in placements_by_level.items():
-        # Sort annotations by left bound for overlap detection
-        annotations.sort(key=lambda x: x[1])  # Sort by left_bound
-
-        # Check for overlaps between adjacent annotations
-        for j in range(len(annotations) - 1):
-            curr = annotations[j]
-            next_ann = annotations[j + 1]
-
-            curr_right = curr[2]  # right_bound
-            next_left = next_ann[1]  # left_bound
-
-            if curr_right > next_left:
-                # print(
-                #     f"Debug: Overlap detected - annotation {curr[0]} ends at {curr_right:.2f}pt, annotation {next_ann[0]} starts at {next_left:.2f}pt",
-                #     file=sys.stderr,
-                # )
-                return False
-
-        # Check if any annotation extends beyond page boundaries
-        # In two-column mode, use smaller left margin since we're within a column
-        left_margin = 5.0 if has_columns else 20.0
-        for i, left_bound, right_bound, _, _ in annotations:
-            if left_bound < left_margin or right_bound > page_width_pt:
-                return False
-
-    # Check for vertical line crossings: text boxes crossing through vertical lines from other levels
-    for (position_1, level_1), annotations_1 in placements_by_level.items():
-        for (position_2, level_2), annotations_2 in placements_by_level.items():
-            # only check same position
-            if position_1 != position_2:
-                continue
-
-            # only check different levels
-            if level_1 >= level_2:
-                continue
-
-            # Check if any text box from level_1 crosses through vertical lines from level_2
-            for ann_1 in annotations_1:
-                _, ann_1_left, ann_1_right, _, _ = ann_1
-
-                for ann_2 in annotations_2:
-                    ann_2_id, _, _, _, _ = ann_2
-
-                    # Get the vertical line position for annotation 2 (its node position)
-                    if ann_2_id in node_positions:
-                        vertical_line_x = node_positions[ann_2_id]
-
-                        # Check if annotation 1's text box crosses through annotation 2's vertical line
-                        # Use 10pt clearance as specified
-                        clearance = 5.0
-                        if (
-                            ann_1_left < vertical_line_x + clearance
-                            and ann_1_right > vertical_line_x - clearance
-                        ):
-                            return False
-    return True
 
 
 def generate_tikzpicture_annotations(
