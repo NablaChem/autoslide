@@ -1,0 +1,3 @@
+<# An inline icon badge: coloured disc with the glyph centred on it.
+   Context: pdf_filename (the recoloured icon, already next to the .tex). #>
+\hspace{<< theme.icons.lead_shift >>}\begin{tikzpicture}[baseline=-0.5ex] \fill[<< theme.colors.icon_bg >>] (0,0) circle (<< theme.icons.circle_radius >>); \node[inner sep=0pt] at (0,0) {\includegraphics[width=<< theme.icons.glyph_size >>,height=<< theme.icons.glyph_size >>]{<< pdf_filename >>}}; \end{tikzpicture}

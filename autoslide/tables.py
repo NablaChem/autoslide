@@ -1,76 +1,55 @@
+"""Markdown table parsing. Rendering lives in ``templates/blocks/table.tex.j2``."""
+
 import re
+from dataclasses import dataclass, field
+from typing import List, Optional
+
+from .theme import Theme, default_theme
+
+_SEPARATOR_ROW = re.compile(r"^\s*\|?[\s\-\|:]+\|?\s*$")
 
 
-def format_table(content: str) -> str:
-    """Format markdown table content."""
+@dataclass
+class TableRow:
+    cells: List[str]
+    shaded: bool = False
+
+
+@dataclass
+class TableModel:
+    header: List[str] = field(default_factory=list)
+    rows: List[TableRow] = field(default_factory=list)
+    columns: int = 0
+
+
+def parse_table(content: str, theme: Optional[Theme] = None) -> Optional[TableModel]:
+    """Parse a markdown table. Returns None when the content isn't a table.
+
+    Row shading follows a fixed cycle (by default: two plain rows, two shaded)
+    which is decided here so the template only has to apply a colour.
+    """
+    theme = theme or default_theme()
     lines = [line.strip() for line in content.split("\n") if line.strip()]
-
     if len(lines) < 2:
-        return content
+        return None
 
-    # Parse table rows
-    table_rows = []
+    parsed_rows = [
+        [cell.strip() for cell in line.strip("|").split("|")]
+        for line in lines
+        if "|" in line and not _SEPARATOR_ROW.match(line)
+    ]
+    if not parsed_rows:
+        return None
 
-    for i, line in enumerate(lines):
-        # Skip separator line (|---|---|)
-        if re.match(r"^\s*\|?[\s\-\|:]+\|?\s*$", line):
-            continue
+    columns = max(len(row) for row in parsed_rows)
 
-        # Parse table row
-        if "|" in line:
-            # Remove leading/trailing pipes and split
-            cells = [cell.strip() for cell in line.strip("|").split("|")]
-            # Apply italic formatting to each cell
-            cells = [
-                re.sub(r"\*([^*]+)\*", r"\\textit{\1}", cell) for cell in cells
-            ]
-            # Handle footnote references in cells
-            cells = [
-                re.sub(r"\[\^([0-9,]+)\]", r"\\footnotemark[\1]", cell)
-                for cell in cells
-            ]
-            table_rows.append(cells)
+    def pad(row: List[str]) -> List[str]:
+        return row + [""] * (columns - len(row))
 
-    if not table_rows:
-        return content
-
-    # Determine number of columns
-    max_cols = max(len(row) for row in table_rows)
-
-    # Build LaTeX table
-    latex_lines = []
-    latex_lines.append("\\begin{center}")
-    latex_lines.append("\\begin{tabular}{" + "l" * max_cols + "}")
-
-    for i, row in enumerate(table_rows):
-        # Pad row to max columns
-        padded_row = row + [""] * (max_cols - len(row))
-
-        if i == 0:
-            # Add blue line above header matching header background color
-            latex_lines.append(
-                "\\arrayrulecolor{ncblue!20}\\specialrule{1.33pt}{0pt}{0pt}\\arrayrulecolor{black}"
-            )
-            # Header row - blue background and bold text
-            formatted_cells = [f"\\textbf{{{cell}}}" for cell in padded_row]
-            latex_lines.append(
-                "\\rowcolor{ncblue!20}" + " & ".join(formatted_cells) + " \\\\"
-            )
-            # Add thinner blue line under header
-            latex_lines.append(
-                "\\arrayrulecolor{ncblue}\\specialrule{1.33pt}{0pt}{0pt}\\arrayrulecolor{black}"
-            )
-        else:
-            # Data rows with alternating shading pattern (2 unshaded, 2 shaded)
-            # Pattern: rows 1,2 = unshaded, rows 3,4 = shaded, rows 5,6 = unshaded, etc.
-            cycle_position = (i - 1) % 4  # 0,1,2,3 for rows 1,2,3,4
-            if cycle_position >= 2:  # rows 3,4 in each cycle get light blue shading
-                latex_lines.append(
-                    "\\rowcolor{ncblue!10}" + " & ".join(padded_row) + " \\\\"
-                )
-            else:
-                latex_lines.append(" & ".join(padded_row) + " \\\\")
-
-    latex_lines.append("\\end{tabular}")
-    latex_lines.append("\\end{center}")
-    return "\n".join(latex_lines)
+    header, *data = parsed_rows
+    cycle = theme.layout.table_shade_cycle
+    rows = [
+        TableRow(cells=pad(row), shaded=(index % cycle) >= theme.layout.table_shade_from)
+        for index, row in enumerate(data)
+    ]
+    return TableModel(header=pad(header), rows=rows, columns=columns)

@@ -1,121 +1,95 @@
+"""``:icon:`` syntax -> a TikZ badge built from an SVG in ``icons/light/``.
+
+This module does the file work (locate SVG, recolour it, convert to PDF); the
+LaTeX badge itself is ``templates/blocks/icon.tex.j2``.
+"""
+
 import os
-import sys
 import re
+import sys
+from typing import Optional
+
+from . import templating
+from .theme import Theme, default_theme
+
+_ICON_PATTERN = re.compile(r":([a-zA-Z0-9_-]+):")
+
+#: Repository root, where the shared ``icons/`` directory lives.
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def process_heading_icons(heading_text: str, output_dir: str = ".") -> str:
-    """Process heading text to replace :icon_name: with rendered SVG icons."""
-    # First handle special icon mappings
-    heading_text = heading_text.replace(":email:", ":envelope:")
-    heading_text = heading_text.replace(":web:", ":globe:")
+def process_icons(
+    text: str,
+    output_dir: str = ".",
+    theme: Optional[Theme] = None,
+    engine: Optional[templating.TemplateEngine] = None,
+) -> str:
+    """Replace every ``:name:`` in ``text`` with a rendered icon badge."""
+    theme = theme or default_theme()
+    engine = engine or templating.engine(theme)
 
-    # Pattern to match :icon_name: syntax
-    icon_pattern = r":([a-zA-Z0-9_-]+):"
+    for alias, target in theme.icons.aliases.items():
+        text = text.replace(f":{alias}:", f":{target}:")
 
-    def replace_icon(match):
-        icon_name = match.group(1)
-        return generate_svg_icon(icon_name, output_dir)
-
-    return re.sub(icon_pattern, replace_icon, heading_text)
-
-
-def generate_svg_icon(icon_name: str, output_dir: str = ".") -> str:
-    """Generate LaTeX code for an SVG icon with colored circle background."""
-    import os
-
-    # Get the directory where render.py is located
-    render_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    # Construct the source path relative to render.py
-    source_icon_path = os.path.join(
-        render_dir, "icons", "light", f"{icon_name}-light.svg"
+    return _ICON_PATTERN.sub(
+        lambda match: render_icon(match.group(1), output_dir, theme, engine), text
     )
 
-    # Check if the source file exists
-    if not os.path.exists(source_icon_path):
-        # If icon doesn't exist, return the original text or a placeholder
+
+def render_icon(
+    icon_name: str,
+    output_dir: str = ".",
+    theme: Optional[Theme] = None,
+    engine: Optional[templating.TemplateEngine] = None,
+) -> str:
+    """Return LaTeX for one icon, or the literal ``:name:`` if unavailable."""
+    theme = theme or default_theme()
+    engine = engine or templating.engine(theme)
+
+    source = os.path.join(_ROOT, "icons", "light", f"{icon_name}-light.svg")
+    if not os.path.exists(source):
         return f":{icon_name}:"
 
-    # Destination PDF path in output directory
-    local_pdf_filename = f"{icon_name}-light.pdf"
-    # Convert output_dir to absolute path to ensure PDFs are created in the right place
-    abs_output_dir = os.path.abspath(output_dir)
-    local_pdf_path = os.path.join(abs_output_dir, local_pdf_filename)
+    pdf_filename = f"{icon_name}-light.pdf"
+    pdf_path = os.path.join(os.path.abspath(output_dir), pdf_filename)
 
-    # Convert SVG to PDF if it doesn't exist or source is newer
-    if not os.path.exists(local_pdf_path) or source_is_newer(
-        source_icon_path, local_pdf_path
-    ):
+    if not os.path.exists(pdf_path) or _source_is_newer(source, pdf_path):
         try:
-            convert_svg_to_pdf(
-                source_icon_path, local_pdf_path, "#0A2D64"
-            )  # ncblue color
-        except Exception as e:
-            # If conversion fails, fall back to original text
+            convert_svg_to_pdf(source, pdf_path, theme.icons.color)
+        except Exception as error:  # missing cairosvg, unreadable SVG, ...
             print(
-                f"Warning: Could not convert icon {icon_name} to PDF: {e}",
+                f"Warning: Could not convert icon {icon_name} to PDF: {error}",
                 file=sys.stderr,
             )
             return f":{icon_name}:"
 
-    # Generate TikZ code for icon with circular background using local PDF
-    # Use proper LaTeX formatting with inline TikZ and includegraphics for PDF
-    # Increased circle diameter by 50% then 20%: 0.4em -> 0.6em -> 0.72em, icon: 0.6em -> 0.9em -> 1.08em
-    # Move entire icon to the left by 50% of circle size: 0.72em * 0.5 = 0.36em
-    tikz_code = f"\\hspace{{-0.36em}}\\begin{{tikzpicture}}[baseline=-0.5ex] \\fill[ncblue!20] (0,0) circle (0.72em); \\node[inner sep=0pt] at (0,0) {{\\includegraphics[width=1.08em,height=1.08em]{{{local_pdf_filename}}}}}; \\end{{tikzpicture}}"
-
-    return tikz_code
+    return engine.render_block("blocks/icon.tex.j2", pdf_filename=pdf_filename)
 
 
-def source_is_newer(source_file: str, target_file: str) -> bool:
-    """Check if source file is newer than target file."""
-    import os
-
+def _source_is_newer(source_file: str, target_file: str) -> bool:
     try:
-        source_stat = os.stat(source_file)
-        target_stat = os.stat(target_file)
-        return source_stat.st_mtime > target_stat.st_mtime
+        return os.stat(source_file).st_mtime > os.stat(target_file).st_mtime
     except OSError:
-        return True  # If target doesn't exist or error, consider source newer
+        return True
 
 
 def convert_svg_to_pdf(svg_path: str, pdf_path: str, color: str) -> None:
-    """Convert SVG to PDF with specified color using cairosvg."""
-    try:
-        import cairosvg
+    """Recolour an SVG and convert it to PDF."""
+    import cairosvg
 
-        # Read and modify SVG to apply color
-        with open(svg_path, "r", encoding="utf-8") as f:
-            svg_content = f.read()
-
-        # Parse SVG and apply color
-        svg_content = apply_color_to_svg(svg_content, color)
-
-        # Convert to PDF
-        cairosvg.svg2pdf(bytestring=svg_content.encode("utf-8"), write_to=pdf_path)
-
-    except ImportError:
-        raise ImportError("cairosvg is required for SVG to PDF conversion")
+    with open(svg_path, "r", encoding="utf-8") as handle:
+        svg_content = apply_color_to_svg(handle.read(), color)
+    cairosvg.svg2pdf(bytestring=svg_content.encode("utf-8"), write_to=pdf_path)
 
 
 def apply_color_to_svg(svg_content: str, color: str) -> str:
-    """Apply color to SVG content by replacing currentColor and stroke attributes."""
-    import re
-
-    # Replace currentColor with the specified color
+    """Force every stroke/fill in the SVG to ``color`` (leaving ``none`` alone)."""
     svg_content = svg_content.replace("currentColor", color)
-
-    # Replace existing stroke colors (but not "none")
-    svg_content = re.sub(
-        r'stroke="(?!none)[^"]*"', f'stroke="{color}"', svg_content
-    )
-    svg_content = re.sub(
-        r"stroke='(?!none)[^']*'", f"stroke='{color}'", svg_content
-    )
-
-    # Replace existing fill attributes (except "none")
-    svg_content = re.sub(r'fill="(?!none)[^"]*"', f'fill="{color}"', svg_content)
-    svg_content = re.sub(r"fill='(?!none)[^']*'", f"fill='{color}'", svg_content)
-
+    for attribute in ("stroke", "fill"):
+        svg_content = re.sub(
+            rf'{attribute}="(?!none)[^"]*"', f'{attribute}="{color}"', svg_content
+        )
+        svg_content = re.sub(
+            rf"{attribute}='(?!none)[^']*'", f"{attribute}='{color}'", svg_content
+        )
     return svg_content
-
-

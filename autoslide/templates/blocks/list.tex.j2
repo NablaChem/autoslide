@@ -1,0 +1,38 @@
+<# A markdown list. Context:
+     list             lists.ListModel
+     trailing_break   line break closing a compact one-liner; widened when
+                      another list follows, so the two don't run together
+
+   No blank lines anywhere: a blank line would end the LaTeX paragraph and let
+   \parskip open a gap, which is exactly what the compact form avoids.
+#>
+<% block heading %>
+<% if list.heading %>
+<# A compact list continues the heading's line, so a break goes here too - but
+   always a tight one; only the block's closing break may widen. #>
+<% set heading_break = "\\\\[" ~ theme.layout.compact_list_break ~ "]" if (list.compact and not list.heading_only) else "" %>
+\textbf{\textcolor{<< theme.colors.primary >>}{<< list.heading | inline | icons >>}}<< heading_break >>
+<% endif %>
+<% endblock %>
+<% if list.heading_only %>
+<# the heading was the whole block - nothing else to render #>
+<% elif list.compact %>
+<% block compact_item %>
+<< list.items[0].text | inline >>\\[<< trailing_break >>]
+<% endblock %>
+<% else %>
+<% block itemize %>
+\vspace{<< theme.layout.itemize_raise >>}\begin{itemize}
+<% for item in list.items %>
+\item << item.text | inline >>
+<% if item.children %>
+\begin{itemize}
+<% for child in item.children %>
+\item << child | inline >>
+<% endfor %>
+\end{itemize}
+<% endif %>
+<% endfor %>
+\end{itemize}
+<% endblock %>
+<% endif %>

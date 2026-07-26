@@ -1,0 +1,16 @@
+<# A markdown table. Context: table (tables.TableModel). #>
+<% set rule = theme.layout.table_rule_width %>
+\begin{center}
+\begin{tabular}{<< theme.layout.table_column_spec * table.columns >>}
+<% block header %>
+\arrayrulecolor{<< theme.colors.table_header_bg >>}\specialrule{<< rule >>}{0pt}{0pt}\arrayrulecolor{black}
+\rowcolor{<< theme.colors.table_header_bg >>}<% for cell in table.header %>\textbf{<< cell | inline >>}<% if not loop.last %> & <% endif %><% endfor %> \\
+\arrayrulecolor{<< theme.colors.primary >>}\specialrule{<< rule >>}{0pt}{0pt}\arrayrulecolor{black}
+<% endblock %>
+<% block rows %>
+<% for row in table.rows %>
+<% if row.shaded %>\rowcolor{<< theme.colors.table_row_bg >>}<% endif %><% for cell in row.cells %><< cell | inline >><% if not loop.last %> & <% endif %><% endfor %> \\
+<% endfor %>
+<% endblock %>
+\end{tabular}
+\end{center}

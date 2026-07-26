@@ -1,0 +1,11 @@
+<# An image or generated figure. Context: image (images.ImageSpec). #>
+\begin{center}
+    \vspace{<< image.shift >>}
+\includegraphics[width=<< image.width >>,height=<< image.height >>,keepaspectratio]{<< image.path >>}
+\end{center}
+<% block caption %>
+<% if image.caption %>
+\vspace{-1em}
+\textcolor{<< theme.colors.muted >>}{<< image.caption | inline >>}
+<% endif %>
+<% endblock %>

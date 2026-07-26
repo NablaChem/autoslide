@@ -1,0 +1,34 @@
+<# One content slide - also the section-summary variant, which differs only in
+   the title-bar colour and a hair of horizontal shift.
+
+   Context:
+     title, frame_options, summary (bool)
+     layout, render_block   see slides/layout.tex.j2
+     footnotes              footnotes.FootnoteList
+#>
+<% block frame_open %>
+<% if summary %>
+\setbeamercolor{frametitle}{bg=<< theme.colors.accent >>, fg=<< theme.colors.on_primary >>}
+<% endif %>
+\begin{frame}<< frame_options >>
+<% if title %>
+\frametitle{<< title >>}
+<% endif %>
+<% endblock %>
+<% block content %>
+\vspace{<< theme.layout.content_raise >>}<% if summary %>\hspace{<< theme.layout.summary_content_shift >>}<% endif %>\begin{minipage}[t][<< theme.layout.content_height >>\textheight]{\textwidth}
+<% include "slides/layout.tex.j2" %>
+<% endblock %>
+
+\vfill
+
+<% block footnotes %>
+<% if footnotes %>
+<% include "blocks/footnotes.tex.j2" %>
+<% endif %>
+<% endblock %>
+\end{minipage}
+\end{frame}
+<% if summary %>
+\setbeamercolor{frametitle}{bg=<< theme.colors.primary >>, fg=<< theme.colors.on_primary >>}
+<% endif %>

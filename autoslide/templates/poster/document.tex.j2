@@ -1,0 +1,25 @@
+<# The whole A0 poster: one frame holding a title block and column bands.
+   Context: title, author, contacts, frame_options, groups, render_box,
+   plus the preamble's context. #>
+<% include "preamble.tex.j2" %>
+\begin{frame}<< frame_options >>
+<% block title %>
+\begin{center}{<< theme.fonts.poster_title_size >>\color{<< theme.colors.primary >>} << title >>}\end{center}
+
+<% if author %>
+<< author | inline >>
+
+<% endif %>
+<% if contacts %>
+<< contacts | join("\\hspace{" + theme.layout.contact_gap + "}") >>
+
+<% endif %>
+\hrule
+\vspace{<< theme.poster.title_rule_gap >>}
+
+<% endblock %>
+<% block body %>
+<% include "poster/layout.tex.j2" %>
+<% endblock %>
+\end{frame}
+\end{document}

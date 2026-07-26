@@ -109,10 +109,53 @@ $$\hat y(\mathbf{x}_q) = \sum_{i=1}^{ N } w_i {k}(\mathbf{x}_i, \mathbf{x}_q)$$
 - `:icon:` - Icons in headings, https://phosphoricons.com/
 
 
+## Customising the output
+
+All LaTeX comes from Jinja2 templates in `autoslide/templates/`, and every
+colour, font and length from the `Theme` in `autoslide/theme.py`. Templates use
+LaTeX-safe delimiters: `<% ... %>` for statements, `<< ... >>` for expressions,
+`<# ... #>` for comments.
+
+### Overriding a template
+
+Drop a file with the same relative name into a template directory - searched in
+this order:
+
+1. `$AUTOSLIDE_TEMPLATES` (`:`-separated list of directories)
+2. `autoslide-templates/` next to your markdown file
+3. `~/.config/autoslide/templates/`
+
+The built-in versions stay reachable under the `autoslide/` prefix, so an
+override usually replaces just one named block:
+
+```jinja
+<# my-talk/autoslide-templates/slides/frame.tex.j2 #>
+<% extends "autoslide/slides/frame.tex.j2" %>
+<% block footnotes %>
+\parbox[t]{\textwidth}{\tiny <% include "blocks/footnotes.tex.j2" %>}
+<% endblock %>
+```
+
+Editing a template invalidates the output cache automatically.
+
+### What each template does
+
+| Template | Renders |
+| --- | --- |
+| `preamble.tex.j2` | Shared preamble for slides, posters and the annotation-measurement pass. Blocks: `documentclass`, `fonts`, `colors`, `geometry`, `frame_furniture`, `lists`, `footnotes`, `math`, `packages`, `code_styles`, `spacing`, `extra` |
+| `slides/document.tex.j2` | The presentation as a whole |
+| `slides/frame.tex.j2` | A content slide, including the `?summary` variant |
+| `slides/layout.tex.j2` | Sections (`---`) and columns (`-\|-`) |
+| `slides/title_page.tex.j2` | Cover slide |
+| `slides/section_slide.tex.j2` | Full-bleed divider slide |
+| `poster/document.tex.j2`, `poster/layout.tex.j2`, `poster/box.tex.j2` | Poster, its column bands, and one `###` box |
+| `blocks/*.tex.j2` | One block each: `list`, `table`, `image`, `equation`, `footnotes`, `icon`, `tracing` |
+| `measure/document.tex.j2` | Throwaway document whose log reports annotation geometry |
+
 ## Installation
 
 ```bash
-pip install click matplotlib numpy tqdm cairosvg pygments
+pip install click jinja2 matplotlib numpy tqdm cairosvg pygments
 ```
 
 Requirements:

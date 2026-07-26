@@ -1,0 +1,16 @@
+<# The poster's two-column bands. Context:
+     groups      list of layout.ColumnGroup
+     render_box  callable(PosterBox) -> LaTeX
+#>
+<% for group in groups %>
+\begin{columns}[t]
+<% for side in (group.left, group.right) %>
+\begin{column}[t]{<< theme.layout.column_width >>\textwidth}
+<% for box in side %>
+<< render_box(box) >>
+<% endfor %>
+\end{column}
+<% endfor %>
+\end{columns}
+
+<% endfor %>

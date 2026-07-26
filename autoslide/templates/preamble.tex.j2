@@ -1,0 +1,151 @@
+<# Shared preamble for every document autoslide produces.
+
+     mode = "slide"   16:9 beamer presentation
+          | "poster"  A0 beamerposter
+          | "measure" throwaway document used to measure annotation geometry
+
+   The measurement document MUST share this preamble with the real one: its
+   \textwidth and column widths are what annotation placement is calibrated
+   against, and any drift silently misplaces every annotation.
+
+   Context: mode, tracing (bool), pygments_styles (str, may be empty).
+#>
+<% block documentclass %>
+<% if mode == "poster" %>
+\documentclass[t]{beamer}
+<% else %>
+\documentclass[aspectratio=<< theme.layout.aspect_ratio >>,t]{beamer}
+<% endif %>
+\usetheme{default}
+<% endblock %>
+\usepackage{graphicx}
+
+<% block fonts %>
+\usepackage{fontspec}
+\usefonttheme{professionalfonts} % using non standard fonts for beamer
+\usefonttheme{serif} % default family is serif
+\setmainfont{<< theme.fonts.main >>}[
+  << theme.fonts.main_options >>
+]
+\setmonofont{<< theme.fonts.mono >>}
+<% endblock %>
+
+<% block colors %>
+\usepackage{xcolor}
+<% for name, rgb in theme.colors.definitions.items() %>
+\definecolor{<< name >>}{RGB}{<< rgb[0] >>,<< rgb[1] >>,<< rgb[2] >>}
+<% endfor %>
+<% endblock %>
+
+<% block geometry %>
+<% if mode == "poster" %>
+\usepackage[size=<< theme.poster.paper_size >>,orientation=<< theme.poster.orientation >>,scale=<< theme.poster.scale >>]{beamerposter}
+<% endif %>
+\setbeamersize
+{
+    text margin left=<< theme.layout.text_margin >>,
+    text margin right=<< theme.layout.text_margin >>
+}
+<% endblock %>
+
+<% block frame_furniture %>
+\setbeamercolor{section title}{fg=<< theme.colors.section_title >>}
+\setbeamerfont{section title}{series=\bfseries}
+\setbeamercolor{frametitle}{bg=<< theme.colors.primary >>, fg=<< theme.colors.on_primary >>}
+\setbeamertemplate{navigation symbols}{}
+<% if mode == "poster" %>
+\setbeamercolor{block title}{bg=<< theme.colors.primary >>, fg=<< theme.colors.on_primary >>}
+\setbeamercolor{block body}{bg=white}
+\setbeamertemplate{block title}{%
+  \begin{beamercolorbox}[wd=\linewidth,dp=<< theme.poster.block_title_depth >>,leftskip=<< theme.poster.block_title_padding >>,rightskip=<< theme.poster.block_title_padding >>]{block title}%
+    \usebeamerfont{block title}\rule{0pt}{<< theme.poster.block_title_strut >>}\insertblocktitle%
+  \end{beamercolorbox}%
+}
+\setbeamertemplate{headline}{}
+\setbeamertemplate{footline}{}
+\setbeamertemplate{frametitle}{}
+<% else %>
+<# One parameterised title bar, used by both normal frames and the title page.
+   #1 = 1 draws the frame number, 0 suppresses it. #>
+\makeatletter
+\newcommand{\autoslidetitlebar}[1]{%
+  \vskip-0.2ex
+  \makebox[\paperwidth][s]{%
+    \begin{beamercolorbox}[wd=\paperwidth,ht=<< theme.layout.frame_title_height >>,dp=<< theme.layout.frame_title_depth >>,leftskip=<< theme.layout.frame_title_padding >>,rightskip=<< theme.layout.frame_title_padding >>]{frametitle}%
+      \usebeamerfont{frametitle}%
+      \insertframetitle
+      \ifnum#1>0%
+        \ifx\insertframetitle\@empty\else\def\autoslide@thinspace{\,}\ifx\insertframetitle\autoslide@thinspace\else\hfill{\footnotesize \insertframenumber}\fi\fi
+      \fi
+    \end{beamercolorbox}%
+  }%
+  % make sure all tikz node labels only exist on the same frame
+  \tikzset{tikzmark prefix=frame\insertframenumber}%
+}
+\makeatother
+\setbeamertemplate{frametitle}{\autoslidetitlebar{1}}
+<% endif %>
+<% endblock %>
+
+<% block lists %>
+\setbeamertemplate{itemize item}{\textcolor{<< theme.colors.primary >>}{\textendash}}
+\setbeamertemplate{itemize subitem}{\textcolor{<< theme.colors.primary >>}{\textendash}}
+\setbeamertemplate{itemize subsubitem}{\textcolor{<< theme.colors.primary >>}{\textendash}}
+\setlength{\leftmargini}{<< theme.layout.itemize_margins[0] >>}
+\setlength{\leftmarginii}{<< theme.layout.itemize_margins[1] >>}
+\setlength{\leftmarginiii}{<< theme.layout.itemize_margins[2] >>}
+<% endblock %>
+
+<% block footnotes %>
+<% if mode != "poster" %>
+\usepackage[para]{footmisc}
+\setbeamercolor{footnote mark}{fg=<< theme.colors.primary >>}
+\setbeamertemplate{footnote mark}{[\insertfootnotemark]}
+<% endif %>
+<% endblock %>
+
+<% block math %>
+\usepackage{amsmath}
+% Equation numbers and their parentheses in the primary colour
+\renewcommand{\theequation}{\textcolor{<< theme.colors.primary >>}{\arabic{equation}}}
+\makeatletter
+\renewcommand{\tagform@}[1]{\maketag@@@{\textcolor{<< theme.colors.primary >>}{(#1)}}}
+\makeatother
+<% endblock %>
+
+<% block packages %>
+\usepackage{tikz}
+\usetikzlibrary{tikzmark,calc,positioning}
+\pgfdeclarelayer{background}
+\pgfsetlayers{background,main}
+\usepackage{colortbl}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{fancyvrb}
+\usepackage{color}
+<% if tracing %>
+\usepackage{tcolorbox}
+<% endif %>
+<% endblock %>
+
+<% block code_styles %>
+<< pygments_styles >>
+<% endblock %>
+
+<% block spacing %>
+\setlength{\parskip}{<< theme.layout.parskip >>}
+\setlength{\parindent}{0pt}
+\setlength{\abovedisplayskip}{0pt}
+\setlength{\belowdisplayskip}{0pt}
+\setlength{\abovedisplayshortskip}{0pt}
+\setlength{\belowdisplayshortskip}{0pt}
+<% if mode != "poster" %>
+\renewcommand{\footnotemark}[1][]{%
+  \textsuperscript{\textcolor{<< theme.colors.primary >>}{[#1]}}%
+}
+<% endif %>
+<% endblock %>
+
+<# Hook for user additions: extra packages, \newcommand, logos. #>
+<% block extra %><% endblock %>
+\begin{document}

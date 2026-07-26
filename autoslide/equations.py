@@ -1,8 +1,11 @@
 """
-Equation formatting functionality for autoslide.
+Annotated equations: where each label goes, and the geometry to get it there.
 
-This module contains functions for formatting annotated equations with tikzmark nodes,
-including complex annotation placement algorithms that avoid overlaps and fit within page bounds.
+This module owns the placement *algorithm* - measuring the typeset equation,
+then searching for a set of label positions that collide with neither the
+equation's ink nor each other. The LaTeX it produces lives in
+``templates/blocks/equation.tex.j2``, and the measurement document it compiles
+in ``templates/measure/document.tex.j2``.
 """
 
 import re
@@ -11,17 +14,39 @@ import tempfile
 import os
 import subprocess
 import shutil
+from dataclasses import dataclass
 from typing import List, Dict, Tuple, Optional
+
 from .models import Block
-from . import ink
-
-# Raster ink-collision configuration (see determine_annotation_placement).
-INK_DPI = 300
-CLEARANCE_PT = 3.0
+from .theme import Theme, default_theme
+from . import ink, templating
 
 
-def format_annotated_equation(block: Block, has_columns: bool = False, node_counter: int = 0, output_dir: str = ".") -> Tuple[str, int]:
-    """Format an annotated equation with tikzmarknode annotations."""
+@dataclass
+class AnnotationDraw:
+    """One label, resolved to the lengths ``blocks/equation.tex.j2`` needs."""
+
+    node: str
+    side: str  # "above" | "below"
+    text: str
+    corner: str  # tikz anchor the highlight tint grows from
+    stem_pt: float  # where the leader line starts, relative to the baseline
+    leader_pt: float  # where it ends
+    label_offset_pt: float  # distance passed to tikz's above=/below=
+    anchor: str
+    xshift: str
+    yshift: str
+
+
+def render_annotated_equation(
+    block: Block,
+    engine: templating.TemplateEngine,
+    has_columns: bool = False,
+    node_counter: int = 0,
+    output_dir: str = ".",
+) -> Tuple[str, int]:
+    """Render an equation block, placing any annotations. Returns (latex, counter)."""
+    theme = engine.theme
     equation = block.metadata["equation"]
     annotations = block.metadata["annotations"]
     heading = block.metadata.get("heading", "")
@@ -64,15 +89,19 @@ def format_annotated_equation(block: Block, has_columns: bool = False, node_coun
                         annotation_start_line + offset
                     )
 
-    def _prepend_heading(latex: str) -> str:
-        if not heading:
-            return latex
-        rendered = re.sub(r"\*([^*]+)\*", r"\\textit{\1}", heading)
-        return f"\\textbf{{\\textcolor{{ncblue}}{{{rendered}}}}}\n{latex}"
+    def _render(equation_body: str, draws: List[AnnotationDraw], above: float, below: float) -> str:
+        return engine.render(
+            "blocks/equation.tex.j2",
+            heading=heading,
+            equation=equation_body,
+            annotations=draws,
+            above_vspace_pt=above,
+            below_vspace_pt=below,
+        )
 
     # If no annotations, render as simple equation
     if not annotation_specs:
-        return _prepend_heading(f"\\begin{{align}}\\abovedisplayskip=0pt\\belowdisplayskip=0pt{equation_content}\\end{{align}}"), node_counter
+        return _render(equation_content, [], 0.0, 0.0), node_counter
 
     # Create tikzmarknode-wrapped equation
     annotated_equation, node_names, node_counter = create_tikzmarknode_equation_new(
@@ -87,57 +116,20 @@ def format_annotated_equation(block: Block, has_columns: bool = False, node_coun
     above_placements, below_placements, above_vspace_pt, below_vspace_pt = (
         determine_annotation_placement(
             annotated_equation, annotation_specs, node_names, has_columns, node_counter,
-            output_dir, equation_content=equation_content,
+            output_dir, equation_content=equation_content, theme=theme,
         )
     )
 
-    # Convert placements to label map for tikzpicture generation
-    annotations_above = {}
-    annotations_below = {}
-    for i, (exact_string, label) in enumerate(annotation_specs, 1):
-        if i in above_placements:
-            annotations_above[i] = label
-        elif i in below_placements:
-            annotations_below[i] = label
+    draws = build_annotation_draws(
+        annotation_specs, node_names, above_placements, below_placements, theme
+    )
+    if not draws:
+        return _render(annotated_equation, [], 0.0, 0.0), node_counter
 
-    # Generate tikzpicture with annotations
-    if annotations_above or annotations_below:
-        tikz_code, _ = generate_tikzpicture_annotations(
-            annotations_above,
-            annotations_below,
-            node_names,
-            above_placements,
-            below_placements,
-        )
-
-        # Generate the complete LaTeX output
-        latex_parts = []
-
-        # Space above equation to contain above annotations within the tcolorbox bbox
-        if above_vspace_pt > 0:
-            latex_parts.append(f"\\vspace{{{above_vspace_pt:.2f}pt}}")
-
-        # Add the equation first so nodes are defined
-        latex_parts.append(
-            f"\\begin{{align}}\\abovedisplayskip=0pt\\belowdisplayskip=0pt{annotated_equation}\\end{{align}}"
-        )
-
-        # Add annotation lines and text (background fill is now handled by tikzmarknode)
-        latex_parts.extend(tikz_code)
-
-        # An overlay tikzpicture's zero-size box opens a paragraph that never
-        # explicitly closes, so a \vspace placed right after it lands mid-paragraph
-        # and is silently absorbed instead of pushing the next block down - \par
-        # first forces it back into vertical mode where \vspace actually applies.
-        if below_vspace_pt > 0:
-            latex_parts.append(f"\\par\\vspace{{{below_vspace_pt:.2f}pt}}")
-    else:
-        # No annotations, just the equation
-        latex_parts = [
-            f"\\begin{{align}}\\abovedisplayskip=0pt\\belowdisplayskip=0pt{annotated_equation}\\end{{align}}"
-        ]
-
-    return _prepend_heading("\n".join(latex_parts)), node_counter
+    return (
+        _render(annotated_equation, draws, above_vspace_pt, below_vspace_pt),
+        node_counter,
+    )
 
 
 def create_tikzmarknode_equation_new(
@@ -219,7 +211,12 @@ def create_tikzmarknode_equation_new(
         # Replace the exact string with tikzmarknode wrapper that includes background fill
         before = result[:pos]
         after = result[pos + len(exact_string) :]
-        wrapped = f"\\tikzmarknode[fill=ncblue!15,inner sep=1pt,outer sep=0pt]{{{node_name}}}{{{exact_string}\\mathstrut}}"
+        theme = default_theme()
+        wrapped = (
+            f"\\tikzmarknode[fill={theme.colors.node_fill},"
+            f"inner sep={theme.annotations.node_inner_sep},outer sep=0pt]"
+            f"{{{node_name}}}{{{exact_string}\\mathstrut}}"
+        )
         result = before + wrapped + after
 
     return result, node_names, node_counter
@@ -233,6 +230,7 @@ def determine_annotation_placement(
     node_counter: int = 0,
     output_dir: str = ".",
     equation_content: str = "",
+    theme: Optional[Theme] = None,
 ) -> Tuple[Dict[int, Tuple[float, str]], Dict[int, Tuple[float, str]], float, float]:
     """Determine optimal placement for annotations using bounding box analysis.
 
@@ -242,13 +240,12 @@ def determine_annotation_placement(
     if not annotation_specs:
         return {}, {}, 0.0, 0.0
 
-    # Configuration - all values in pt (points)
-    BASE_WIDTH_PT = 455.0  # Full page width in points
+    theme = theme or default_theme()
+    config = theme.annotations
     if has_columns:
-        PAGE_WIDTH_PT = (BASE_WIDTH_PT - 20.0) / 2.0
+        available_width_pt = (config.page_width_pt - config.column_gutter_pt) / 2.0
     else:
-        PAGE_WIDTH_PT = BASE_WIDTH_PT
-    HORIZONTAL_PADDING_PT = 10.0
+        available_width_pt = config.page_width_pt
 
     # Step 1: Measure bounding boxes, node positions, and equation bbox using LaTeX
     try:
@@ -256,6 +253,7 @@ def determine_annotation_placement(
             measure_annotation_bounding_boxes(
                 equation_with_nodes, annotation_specs, node_names, node_counter,
                 output_dir, has_columns, equation_content=equation_content,
+                theme=theme,
             )
         )
     except Exception as e:
@@ -270,11 +268,12 @@ def determine_annotation_placement(
         bounding_boxes,
         node_positions,
         node_names,
-        PAGE_WIDTH_PT,
-        HORIZONTAL_PADDING_PT,
+        available_width_pt,
+        config.horizontal_padding_pt,
         node_shifts,
         has_columns,
         eq_ink=eq_ink,
+        theme=theme,
     )
 
     # Step 3: Compute the tight vspace needed beyond the equation's own natural
@@ -290,14 +289,14 @@ def determine_annotation_placement(
     natural_top_y = baseline_y - eq_height
     natural_bottom_y = baseline_y + eq_depth
 
-    # CLEARANCE_PT is the same minimum gap used everywhere else in this module
-    # to keep labels from touching other ink - applying it here too means a
-    # label's far edge isn't flush against whatever block follows the equation.
+    # The same minimum gap used everywhere else in this module to keep labels
+    # from touching other ink - applying it here too means a label's far edge
+    # isn't flush against whatever block follows the equation.
     top_needed_y = natural_top_y
     for i, (level, _) in above_placements.items():
         height_pt = bounding_boxes.get(i, (0.0, 0.0))[1]
         node_y = baseline_y - node_shifts.get(i, 0.0)
-        far_y = node_y - level - height_pt - CLEARANCE_PT
+        far_y = node_y - level - height_pt - config.clearance_pt
         top_needed_y = min(top_needed_y, far_y)
     above_vspace_pt = max(0.0, natural_top_y - top_needed_y)
 
@@ -305,7 +304,7 @@ def determine_annotation_placement(
     for i, (level, _) in below_placements.items():
         height_pt = bounding_boxes.get(i, (0.0, 0.0))[1]
         node_y = baseline_y - node_shifts.get(i, 0.0)
-        far_y = node_y + level + height_pt + CLEARANCE_PT
+        far_y = node_y + level + height_pt + config.clearance_pt
         bottom_needed_y = max(bottom_needed_y, far_y)
     below_vspace_pt = max(0.0, bottom_needed_y - natural_bottom_y)
 
@@ -320,6 +319,7 @@ def measure_annotation_bounding_boxes(
     output_dir: str = ".",
     has_columns: bool = False,
     equation_content: str = "",
+    theme: Optional[Theme] = None,
 ) -> Tuple[
     Dict[int, Tuple[float, float]],
     Dict[int, float],
@@ -339,11 +339,7 @@ def measure_annotation_bounding_boxes(
         - eq_ink: EquationInk with the dilated ink mask + coordinate metadata, or
           None if rasterization failed (callers should fall back to eq_dimensions only)
     """
-    import tempfile
-    import os
-    import subprocess
-    import re
-    import shutil
+    theme = theme or default_theme()
 
     # Create a temporary directory for LaTeX compilation within the output directory
     temp_dir = tempfile.mkdtemp(dir=output_dir)
@@ -353,6 +349,7 @@ def measure_annotation_bounding_boxes(
         measurement_latex, _ = create_measurement_document(
             equation_with_nodes, annotation_specs, node_names, node_counter, has_columns,
             equation_content=equation_content,
+            engine=templating.engine(theme),
         )
 
         # Write to temporary file in the temporary directory
@@ -393,7 +390,10 @@ def measure_annotation_bounding_boxes(
             try:
                 pdf_path = os.path.join(temp_dir, "measurement.pdf")
                 eq_ink = ink.build_equation_ink(
-                    pdf_path, baseline_y, INK_DPI, CLEARANCE_PT
+                    pdf_path,
+                    baseline_y,
+                    theme.annotations.ink_dpi,
+                    theme.annotations.clearance_pt,
                 )
             except Exception as e:
                 print(f"Warning: could not build equation ink mask: {e}", file=sys.stderr)
@@ -415,192 +415,37 @@ def create_measurement_document(
     node_counter: int,
     has_columns: bool = False,
     equation_content: str = "",
+    engine: Optional[templating.TemplateEngine] = None,
 ) -> Tuple[str, int]:
-    """Create LaTeX document for measuring annotation bounding boxes."""
-    # Use exactly the same preamble as the main document
-    preamble = r"""\documentclass[aspectratio=169,t]{beamer}
-% Theme and font setup
-\usetheme{default}
-\usepackage{graphicx}
-\usepackage{fontspec}
-\usefonttheme{professionalfonts} % using non standard fonts for beamer
-\usefonttheme{serif} % default family is serif
-\setmainfont{Fira Sans}[
-  UprightFont = *-Light,
-  BoldFont = *,
-  ItalicFont = *-Light Italic,
-  BoldItalicFont = * Italic
-]
-\usepackage{xcolor}
-\definecolor{navyblue}{RGB}{10,45,100}
-\definecolor{ncblue}{RGB}{221,150,51}
-\definecolor{ncblue}{RGB}{10,45,100}
+    """Build the LaTeX document whose log reports annotation geometry.
 
-\usepackage[para]{footmisc}
-\setbeamercolor{section title}{fg=navyblue}
-\setbeamerfont{section title}{series=\bfseries}
+    A baseline node is injected at the start of the equation; every measurement
+    is reported relative to it. Returns (document, updated node_counter).
+    """
+    engine = engine or templating.engine()
 
-\setbeamercolor{frametitle}{bg=ncblue, fg=white}
-\setbeamertemplate{navigation symbols}{}
-\setbeamertemplate{itemize item}{\textcolor{ncblue}{\textendash}}
-\setbeamertemplate{itemize subitem}{\textcolor{ncblue}{\textendash}}
-\setbeamertemplate{itemize subsubitem}{\textcolor{ncblue}{\textendash}}
-\setlength{\leftmargini}{1em}
-\setlength{\leftmarginii}{2em}
-\setlength{\leftmarginiii}{3em}
-\setbeamercolor{footnote mark}{fg=ncblue}
-\setbeamertemplate{footnote mark}{[\insertfootnotemark]}
-\setbeamertemplate{frametitle}{%
-  \vskip-0.2ex
-  \makebox[\paperwidth][s]{%
-    \begin{beamercolorbox}[wd=\paperwidth,ht=2.5ex,dp=1ex,leftskip=1em,rightskip=1em]{frametitle}%
-      \usebeamerfont{frametitle}%
-      \insertframetitle\hfill{\footnotesize \insertframenumber}
-    \end{beamercolorbox}%
-  }%
-  \tikzset{tikzmark prefix=frame\insertframenumber}
-}
-\usepackage{amsmath}
-\renewcommand{\theequation}{\textcolor{ncblue}{\arabic{equation}}}
-\makeatletter
-\renewcommand{\tagform@}[1]{\maketag@@@{\textcolor{ncblue}{(#1)}}}
-\makeatother
-\usepackage{tikz}
-\usetikzlibrary{tikzmark,calc,positioning}
-\pgfdeclarelayer{background}
-\pgfsetlayers{background,main}
-\usepackage{colortbl}
-\usepackage{array}
-\usepackage{booktabs}
-\setlength{\parskip}{1.5em}
-\setlength{\parindent}{0pt}
-\setlength{\abovedisplayskip}{0pt}
-\setlength{\belowdisplayskip}{0pt}
-\setlength{\abovedisplayshortskip}{0pt}
-\setlength{\belowdisplayshortskip}{0pt}
-
-\begin{document}
-\newlength{\tempx}
-\newsavebox{\eqmeasurebox}
-\begin{frame}[t]
-\typeout{PAGESIZE: width=\the\paperwidth, height=\the\paperheight}
-"""
-
-    # Add column setup if needed
-    if has_columns:
-        preamble += r"""
-% Set up two-column environment to match actual rendering context
-\begin{columns}[t]
-\column{0.48\textwidth}
-% Content goes in right column to match typical equation placement
-\column{0.48\textwidth}
-"""
-
-    # Add the equation with tikzmarknode wrappers to measure node positions
-    # Ensure the equation has proper line endings for align environment
-    equation_lines = equation_with_nodes.strip().split("\n")
-    formatted_lines = []
-    for i, line in enumerate(equation_lines):
-        line = line.strip()
-        if line and i < len(equation_lines) - 1:
-            formatted_lines.append(line)
-        elif line:
-            formatted_lines.append(line)
-
-    # Add baseline node with space character at the beginning of the equation
-    # Generate unique baseline node name
     node_counter += 1
-    baseline_node_name = f"baseline{node_counter}"
+    baseline_node = f"baseline{node_counter}"
 
-    # Insert the baseline node at the start of the first line
-    if formatted_lines:
-        formatted_lines[0] = (
-            f"\\tikzmarknode{{{baseline_node_name}}}{{ }} {formatted_lines[0]}"
-        )
-    else:
-        formatted_lines = [f"\\tikzmarknode{{{baseline_node_name}}}{{ }}"]
+    equation_lines = [line.strip() for line in equation_with_nodes.strip().split("\n")]
+    equation_lines = [line for line in equation_lines if line] or [""]
+    equation_lines[0] = f"\\tikzmarknode{{{baseline_node}}}{{ }} {equation_lines[0]}".rstrip()
 
-    equation_with_baseline = "\n".join(formatted_lines)
-
-    equation_command = f"""
-% Render equation with baseline node to measure node positions
-\\begin{{align}}{equation_with_baseline}\\end{{align}}
-"""
-
-    # Create measurement commands for each annotation text
-    measurement_commands = [equation_command]
-    for i, (exact_string, label) in enumerate(annotation_specs, 1):
-        # Use letters instead of numbers for savebox names (A, B, C, etc.)
-        letter = chr(ord("A") + i - 1)  # A=1, B=2, C=3, etc.
-        measurement_commands.append(
-            f"""
-% Measure annotation {i}: {label}
-\\newsavebox{{\\measurebox{letter}}}
-\\sbox{{\\measurebox{letter}}}{{\\scriptsize {label}}}
-\\typeout{{ANNOTATION{i}: width=\\the\\wd\\measurebox{letter}, height=\\the\\ht\\measurebox{letter}}}
-"""
-        )
-
-    # Measure equation bounding box using an hbox with displaystyle math.
-    # \ht gives height above the math baseline, \dp gives depth below — the same
-    # coordinate origin as the TikZ node_shifts (which are relative to the baseline node).
-    # \vbox would put the baseline at the box bottom, making \ht = total height and \dp = 0,
-    # which is incompatible with the TikZ coordinate system.
-    eq_to_measure = equation_content if equation_content else equation_with_nodes
-    measurement_commands.append(
-        f"""
-% Measure equation bounding box (height above math baseline, depth below math baseline)
-\\sbox{{\\eqmeasurebox}}{{$\\displaystyle\\begin{{aligned}}{eq_to_measure}\\end{{aligned}}$}}
-\\typeout{{EQMEASURE: height=\\the\\ht\\eqmeasurebox, depth=\\the\\dp\\eqmeasurebox}}
-"""
-    )
-
-    # Add position measurements for each node using tikz coordinate extraction
-    # These need to be after the equation is rendered so the nodes exist
-    position_measurements = []
-    position_measurements.append("\\begin{tikzpicture}[remember picture,overlay]")
-
-    # First measure baseline node position
-    position_measurements.append(
-        f"""
-% Measure position of baseline node ({baseline_node_name})
-\\coordinate (temp) at ({baseline_node_name}.base);
-\\path let \\p1 = (temp) in \\pgfextra{{
-    \\pgfmathsetmacro{{\\tempx}}{{\\x{{1}}/1pt}}
-    \\pgfmathsetmacro{{\\tempy}}{{\\y{{1}}/1pt}}
-    \\typeout{{BASELINEPOS: x=\\tempx pt, y=\\tempy pt}}
-}};
-"""
-    )
-
-    # Then measure annotation node positions
-    for i, node_name in node_names.items():
-        position_measurements.append(
-            f"""
-% Measure position of node {i} ({node_name})
-\\coordinate (temp) at ({node_name}.base);
-\\path let \\p1 = (temp) in \\pgfextra{{
-    \\pgfmathsetmacro{{\\tempx}}{{\\x{{1}}/1pt}}
-    \\pgfmathsetmacro{{\\tempy}}{{\\y{{1}}/1pt}}
-    \\typeout{{NODEPOS{i}: x=\\tempx pt, y=\\tempy pt}}
-}};
-"""
-        )
-    position_measurements.append("\\end{tikzpicture}")
-
-    # Combine all measurements: equation first, then text measurements, then position measurements
-    measurement_commands.extend(position_measurements)
-
-    # Close column environment if needed
-    column_close = ""
-    if has_columns:
-        column_close = "\n\\end{columns}"
-
-    document = (
-        preamble
-        + "\n".join(measurement_commands)
-        + column_close
-        + "\n\\end{frame}\n\\end{document}"
+    document = engine.render(
+        "measure/document.tex.j2",
+        mode="measure",
+        tracing=False,
+        pygments_styles="",
+        equation="\n".join(equation_lines),
+        equation_body=equation_content or equation_with_nodes,
+        # Savebox names must be letters, not digits: \measureboxA, \measureboxB, ...
+        labels=[
+            (chr(ord("A") + index - 1), index, label)
+            for index, (_exact, label) in enumerate(annotation_specs, 1)
+        ],
+        nodes=sorted(node_names.items()),
+        baseline_node=baseline_node,
+        has_columns=has_columns,
     )
     return document, node_counter
 
@@ -705,11 +550,6 @@ def parse_measurements_from_log(
     )
 
 
-LEADER_HALF_WIDTH_PT = 2.0
-LEADER_CLEARANCE_PT = 2.0
-MAX_BACKTRACK_VISITS = 500_000  # safety valve against pathological inputs
-
-
 def _annotation_option_obstacles(
     i: int,
     position: str,
@@ -723,12 +563,14 @@ def _annotation_option_obstacles(
     horizontal_padding_pt: float,
     has_columns: bool,
     eq_ink,
+    config=None,
 ):
     """Build (label_rect, leader_rect) for one candidate (position, level, anchor)
     placement of annotation i, checked in isolation (forced side, page margin,
     equation ink). Returns None if this option is invalid regardless of what else
     is placed. Returns (None, None) if there's nothing to check (no measured
     geometry for this annotation) - such an option never conflicts with anything."""
+    config = config or default_theme().annotations
     if node_shifts[i] < 0 and position == "above":
         return None
     if node_shifts[i] > 0 and position == "below":
@@ -736,7 +578,7 @@ def _annotation_option_obstacles(
     if i not in bounding_boxes or i not in node_positions:
         return (None, None)
 
-    left_margin = 5.0 if has_columns else 20.0
+    left_margin = config.margin_column_pt if has_columns else config.margin_full_pt
     right_margin = left_margin
 
     width_pt, height_pt = bounding_boxes[i]
@@ -780,8 +622,8 @@ def _annotation_option_obstacles(
 
     leader_bottom, leader_top = (node_y, near_y) if node_y <= near_y else (near_y, node_y)
     leader_rect = (
-        node_x - LEADER_HALF_WIDTH_PT,
-        node_x + LEADER_HALF_WIDTH_PT,
+        node_x - config.leader_half_width_pt,
+        node_x + config.leader_half_width_pt,
         leader_bottom,
         leader_top,
     )
@@ -789,13 +631,18 @@ def _annotation_option_obstacles(
     return (label_rect, leader_rect)
 
 
-def _obstacles_conflict(rect_a, is_leader_a, rect_b, is_leader_b) -> bool:
+def _obstacles_conflict(rect_a, is_leader_a, rect_b, is_leader_b, config=None) -> bool:
     """Buffered rectangle overlap - catches close (including diagonal) contacts.
     A pair where either side is a leader line uses a smaller clearance, since
     leader lines are already thin by design."""
+    config = config or default_theme().annotations
     l1, r1, b1, t1 = rect_a
     l2, r2, b2, t2 = rect_b
-    clearance = LEADER_CLEARANCE_PT if (is_leader_a or is_leader_b) else CLEARANCE_PT
+    clearance = (
+        config.leader_clearance_pt
+        if (is_leader_a or is_leader_b)
+        else config.clearance_pt
+    )
     el1, er1 = l1 - clearance, r1 + clearance
     eb1, et1 = b1 - clearance, t1 + clearance
     return el1 < r2 and er1 > l2 and eb1 < t2 and et1 > b2
@@ -811,6 +658,7 @@ def find_optimal_placement(
     node_shifts: Dict[int, float],
     has_columns: bool = False,
     eq_ink=None,
+    theme: Optional[Theme] = None,
 ) -> Tuple[Dict[int, Tuple[float, str]], Dict[int, Tuple[float, str]]]:
     """Find optimal placement using a pruned backtracking search over a fixed,
     regularly-spaced grid of levels.
@@ -821,20 +669,16 @@ def find_optimal_placement(
     materializing the full cartesian product of placement choices - which, with
     8+ annotations and a handful of levels, is far too large to enumerate.
     """
+    config = (theme or default_theme()).annotations
     num_annotations = len(annotation_specs)
     baseline_y = eq_ink.baseline_y if eq_ink is not None else 0.0
     indices = list(range(1, num_annotations + 1))
 
-    max_attempts = 8  # Safety limit on how many level tiers to try
-    LEVEL_STEP_PT = 7.5  # spacing between successive levels (halved from 15pt)
-
-    for num_levels in range(1, max_attempts + 1):
-        # Regular, fixed-step grid of levels. The innermost distance (equation
-        # to first level) is unchanged; only the spacing between subsequent
-        # levels is halved.
-        base_level_pt = 15.0  # First level at 15pt below equation
-        levels_below = [base_level_pt + i * LEVEL_STEP_PT for i in range(num_levels)]
-        levels_above = [20.0 + i * LEVEL_STEP_PT for i in range(num_levels)]
+    step = config.level_step_pt
+    for num_levels in range(1, config.max_level_tiers + 1):
+        # Regular, fixed-step grid of levels, tried innermost-first.
+        levels_below = [config.first_level_below_pt + i * step for i in range(num_levels)]
+        levels_above = [config.first_level_above_pt + i * step for i in range(num_levels)]
 
         options_per_annotation = {}
         for i in indices:
@@ -846,6 +690,7 @@ def find_optimal_placement(
                             i, position, level, anchor,
                             bounding_boxes, node_positions, node_shifts, baseline_y,
                             page_width_pt, horizontal_padding_pt, has_columns, eq_ink,
+                            config,
                         )
                         if obs is not None:
                             opts.append((position, level, anchor, obs))
@@ -867,7 +712,7 @@ def find_optimal_placement(
         def backtrack(pos_in_order, cur_above_max, cur_below_max):
             nonlocal visits
             visits += 1
-            if visits > MAX_BACKTRACK_VISITS:
+            if visits > config.max_backtrack_visits:
                 return
             if best["cost"] is not None and (cur_above_max + cur_below_max) >= best["cost"]:
                 return  # branch-and-bound: can't possibly beat the best found so far
@@ -888,8 +733,10 @@ def find_optimal_placement(
                 conflict = False
                 if label_rect is not None:
                     for is_leaderj, rectj in placed_obstacles:
-                        if _obstacles_conflict(label_rect, False, rectj, is_leaderj) or (
-                            _obstacles_conflict(leader_rect, True, rectj, is_leaderj)
+                        if _obstacles_conflict(
+                            label_rect, False, rectj, is_leaderj, config
+                        ) or _obstacles_conflict(
+                            leader_rect, True, rectj, is_leaderj, config
                         ):
                             conflict = True
                             break
@@ -907,7 +754,7 @@ def find_optimal_placement(
                     placed_obstacles.pop()
                 del assignment[i]
 
-                if visits > MAX_BACKTRACK_VISITS:
+                if visits > config.max_backtrack_visits:
                     return
 
         backtrack(0, 0.0, 0.0)
@@ -935,138 +782,66 @@ def find_optimal_placement(
     return {}, below_placements
 
 
-def generate_tikzpicture_annotations(
-    annotations_above: Dict[int, str],
-    annotations_below: Dict[int, str],
+def build_annotation_draws(
+    annotation_specs: List[Tuple[str, str]],
     node_names: Dict[int, str],
-    above_placements: Dict[int, Tuple[float, str]] = None,
-    below_placements: Dict[int, Tuple[float, str]] = None,
-) -> Tuple[List[str], Dict[str, int]]:
-    """Generate tikzpicture code for annotations and return space requirements."""
-    tikz_parts = []
-    tikz_parts.append("\\begin{tikzpicture}[remember picture, overlay]")
+    above_placements: Dict[int, Tuple[float, str]],
+    below_placements: Dict[int, Tuple[float, str]],
+    theme: Optional[Theme] = None,
+) -> List[AnnotationDraw]:
+    """Turn chosen placements into the concrete lengths the template draws with.
 
-    # Calculate heights with left/right alignment optimization
-    above_heights = {}
-    below_heights = {}
-    above_anchors = {}  # Track which side each annotation goes on
-    below_anchors = {}
+    Above and below labels are mirror images of each other: the leader line, the
+    highlight tint and the label offset all flip sign, which is why this is one
+    function over a signed axis rather than two near-identical blocks.
+    """
+    theme = theme or default_theme()
+    config = theme.annotations
+    draws = []
 
-    # Use placement information if provided, otherwise fall back to old logic
-    if above_placements is not None:
-        # Use new placement logic for above annotations
-        for pos in annotations_above.keys():
-            if pos in above_placements:
-                height, anchor = above_placements[pos]
-                above_heights[pos] = height
-                above_anchors[pos] = anchor
-    else:
-        # Fall back to old placement logic for above annotations
-        sorted_above = sorted(annotations_above.keys())
-        for i, pos in enumerate(sorted_above):
-            if i < len(sorted_above) / 2:
-                # Left side: positions 1, 2 (ascending heights)
-                above_heights[pos] = 2 + i  # 2em, 3em
-                above_anchors[pos] = (
-                    "base east"  # Right-aligned text (anchored to east)
-                )
-            else:
-                # Right side: positions 3, 4 - reverse order for pyramid shape
-                right_index = len(sorted_above) - 1 - i  # Reverse mapping
-                above_heights[pos] = 2 + right_index  # 3em, 2em (descending)
-                above_anchors[pos] = (
-                    "base west"  # Left-aligned text (anchored to west)
-                )
-
-    if below_placements is not None:
-        # Use new placement logic for below annotations
-        for pos in annotations_below.keys():
-            if pos in below_placements:
-                height, anchor = below_placements[pos]
-                below_heights[pos] = height
-                below_anchors[pos] = anchor
-    else:
-        # Fall back to old placement logic for below annotations
-        sorted_below = sorted(annotations_below.keys())
-        for i, pos in enumerate(sorted_below):
-            if i < len(sorted_below) / 2:
-                # Left side (ascending heights)
-                below_heights[pos] = 2 + i  # 2em, 3em
-                below_anchors[pos] = "base east"  # Right-aligned text
-            else:
-                # Right side - reverse order for pyramid shape
-                right_index = len(sorted_below) - 1 - i  # Reverse mapping
-                below_heights[pos] = 2 + right_index  # 3em, 2em (descending)
-                below_anchors[pos] = "base west"  # Left-aligned text
-
-    # Calculate space requirements in pt
-    max_above_height = max(above_heights.values()) if above_heights else 0
-    max_below_height = max(below_heights.values()) if below_heights else 0
-
-    # Add buffer for below annotations since they extend down from equation baseline
-    # The annotation extends down by the height value, plus some padding (in pt)
-    adjusted_below_height = max_below_height + 10 if max_below_height > 0 else 0
-
-    space_requirements = {"above": max_above_height, "below": adjusted_below_height}
-
-    # Generate above annotations
-    for pos, text in annotations_above.items():
-        if pos not in node_names:
+    for index, (_exact, label) in enumerate(annotation_specs, 1):
+        node = node_names.get(index)
+        if node is None:
             continue
-        node_name = node_names[pos]
-        height = above_heights[pos]
-        anchor = above_anchors[pos]
-
-        # Determine xshift based on anchor - shift outwards more for space saving
-        xshift = "-0.2em" if anchor == "base east" else "0.2em"
-
-        # Convert height from pt to LaTeX output (still using pt)
-        reduced_height = height - 5.0  # Reduce by 5pt instead of 0.5em
-        yshift = "3pt"  # Shift down slightly like bottom annotations
-
-        tikz_parts.append(f"    %above annotation {pos}")
-        tikz_parts.append(
-            f"\path[fill=ncblue!15,draw=none,line width=0pt] ({node_name}.north west) -- ({node_name}.north east) -- ([yshift=13pt]{node_name}.base east) -- ([yshift=13pt]{node_name}.base west) -- cycle;"
-        )
-
-        tikz_parts.append(
-            f"    \\draw[ncblue, line width=0.4mm] ([yshift=13pt]{node_name}.base west) -- ([yshift=13pt]{node_name}.base east);"
-        )
-        tikz_parts.append(
-            f"    \\draw[ncblue,] ([yshift=13pt]{node_name}.base) -- ([yshift={height}pt]{node_name}.base);"
-        )
-        tikz_parts.append(
-            f"    \\node[above={reduced_height}pt of {node_name}.base,anchor={anchor},inner sep=0,outer sep=0,xshift={xshift},yshift={yshift},text=ncblue] {{\\scriptsize {text}}};"
-        )
-        tikz_parts.append("")
-
-    # Generate below annotations
-    for pos, text in annotations_below.items():
-        if pos not in node_names:
+        if index in above_placements:
+            side, (level, anchor) = "above", above_placements[index]
+            stem_pt = config.stem_above_pt
+            leader_pt = level
+            label_offset_pt = level + config.above_label_offset_pt
+            xshift = config.label_xshift_above
+            yshift = f"{_number(config.label_nudge_pt)}pt"
+            corner = "north"
+        elif index in below_placements:
+            side, (level, anchor) = "below", below_placements[index]
+            stem_pt = -config.stem_below_pt
+            leader_pt = -level
+            label_offset_pt = level
+            xshift = config.label_xshift_below
+            yshift = f"-{_number(config.label_nudge_pt)}pt"
+            corner = "south"
+        else:
             continue
-        node_name = node_names[pos]
-        height = below_heights[pos]
-        anchor = below_anchors[pos]
 
-        # Determine xshift based on anchor
-        xshift = "-2pt" if anchor == "base east" else "2pt"
+        if anchor == "base east":
+            xshift = f"-{xshift}"
 
-        tikz_parts.append(f"    %below annotation {pos}")
-        tikz_parts.append(
-            f"\path[fill=ncblue!15,draw=none,line width=0pt] ({node_name}.south west) -- ({node_name}.south east) -- ([yshift=-8pt]{node_name}.base east) -- ([yshift=-8pt]{node_name}.base west) -- cycle;"
+        draws.append(
+            AnnotationDraw(
+                node=node,
+                side=side,
+                text=label,
+                corner=corner,
+                stem_pt=stem_pt,
+                leader_pt=leader_pt,
+                label_offset_pt=label_offset_pt,
+                anchor=anchor,
+                xshift=xshift,
+                yshift=yshift,
+            )
         )
 
-        # Draw the annotation line and connecting line
-        tikz_parts.append(
-            f"    \\draw[ncblue, line width=0.4mm] ([yshift=-8pt]{node_name}.base west) -- ([yshift=-8pt]{node_name}.base east);"
-        )
-        tikz_parts.append(
-            f"    \\draw[ncblue,] ([yshift=-8pt]{node_name}.base) -- ([yshift=-{height}pt]{node_name}.base);"
-        )
-        tikz_parts.append(
-            f"    \\node[below={height}pt of {node_name}.base,anchor={anchor},inner sep=0,outer sep=0,xshift={xshift},yshift=-3pt,text=ncblue] {{\\scriptsize {text}}};"
-        )
-        tikz_parts.append("")
+    return draws
 
-    tikz_parts.append("\\end{tikzpicture}")
-    return tikz_parts, space_requirements
+
+def _number(value: float) -> str:
+    return str(int(value)) if float(value) == int(value) else str(value)

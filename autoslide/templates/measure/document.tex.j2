@@ -1,0 +1,66 @@
+<# Throwaway document whose LaTeX log reports the geometry that annotation
+   placement is computed from. It deliberately shares preamble.tex.j2 with the
+   real document: identical \textwidth and column widths are what make the
+   measured node positions valid for the document being generated.
+
+   Context:
+     equation        equation with tikzmarknode wrappers and the baseline node
+     equation_body   plain equation, for the \ht/\dp measurement
+     labels          list of (savebox_letter, index, label)
+     nodes           list of (index, node_name)
+     baseline_node   name of the node marking the equation baseline
+     has_columns     measure inside a two-column section
+#>
+<% include "preamble.tex.j2" %>
+\newlength{\tempx}
+\newsavebox{\eqmeasurebox}
+\begin{frame}[t]
+\typeout{PAGESIZE: width=\the\paperwidth, height=\the\paperheight}
+<% if has_columns %>
+% Two columns matching the real rendering context; the equation goes in the
+% right one, where equations usually end up.
+\begin{columns}[t]
+\column{<< theme.layout.column_width >>\textwidth}
+\column{<< theme.layout.column_width >>\textwidth}
+<% endif %>
+
+% Render the equation with its baseline node so node positions can be read off
+\begin{align}<< equation >>\end{align}
+
+<% for letter, index, label in labels %>
+% Measure annotation << index >>: << label >>
+\newsavebox{\measurebox<< letter >>}
+\sbox{\measurebox<< letter >>}{<< theme.fonts.annotation_size >> << label >>}
+\typeout{ANNOTATION<< index >>: width=\the\wd\measurebox<< letter >>, height=\the\ht\measurebox<< letter >>}
+<% endfor %>
+
+<# \ht is height above the math baseline and \dp the depth below - the same
+   origin as the TikZ node shifts. A \vbox would put the baseline at the box
+   bottom and break that correspondence. #>
+% Measure the equation's own extent above/below the math baseline
+\sbox{\eqmeasurebox}{$\displaystyle\begin{aligned}<< equation_body >>\end{aligned}$}
+\typeout{EQMEASURE: height=\the\ht\eqmeasurebox, depth=\the\dp\eqmeasurebox}
+
+\begin{tikzpicture}[remember picture,overlay]
+% Baseline node (<< baseline_node >>)
+\coordinate (temp) at (<< baseline_node >>.base);
+\path let \p1 = (temp) in \pgfextra{
+    \pgfmathsetmacro{\tempx}{\x{1}/1pt}
+    \pgfmathsetmacro{\tempy}{\y{1}/1pt}
+    \typeout{BASELINEPOS: x=\tempx pt, y=\tempy pt}
+};
+<% for index, node_name in nodes %>
+% Node << index >> (<< node_name >>)
+\coordinate (temp) at (<< node_name >>.base);
+\path let \p1 = (temp) in \pgfextra{
+    \pgfmathsetmacro{\tempx}{\x{1}/1pt}
+    \pgfmathsetmacro{\tempy}{\y{1}/1pt}
+    \typeout{NODEPOS<< index >>: x=\tempx pt, y=\tempy pt}
+};
+<% endfor %>
+\end{tikzpicture}
+<% if has_columns %>
+\end{columns}
+<% endif %>
+\end{frame}
+\end{document}

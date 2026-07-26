@@ -1,101 +1,65 @@
-import re
+"""Markdown list parsing. Rendering lives in ``templates/blocks/list.tex.j2``."""
+
+from dataclasses import dataclass, field
+from typing import List
+
+_SUB_ITEM_PREFIXES = ("  -", "\t-", "    -")
 
 
-def format_list(content: str, process_heading_icons=None) -> str:
-    """Format list content with optional heading and nested items."""
+@dataclass
+class ListItem:
+    text: str
+    children: List[str] = field(default_factory=list)
+
+
+@dataclass
+class ListModel:
+    #: Bold coloured lead-in line (a first line without a dash), if any.
+    heading: str = ""
+    items: List[ListItem] = field(default_factory=list)
+
+    @property
+    def compact(self) -> bool:
+        """A lone item without children renders as plain lines, not an itemize.
+
+        This keeps consecutive one-liner lists in a single LaTeX paragraph so
+        ``\\parskip`` doesn't open a gap between them.
+        """
+        return len(self.items) == 1 and not self.items[0].children
+
+    @property
+    def heading_only(self) -> bool:
+        """``"Heading\\n-"`` - a bold lead-in with no bullet at all."""
+        return self.compact and not self.items[0].text
+
+
+def parse_list(content: str) -> ListModel:
     lines = content.split("\n")
-    list_lines = []
+    model = ListModel()
 
-    # Check if first line is a heading (no dash)
-    first_line = lines[0].strip()
-    start_idx = 0
+    index = 0
+    first = lines[0].strip() if lines else ""
+    if first and not first.startswith("-"):
+        model.heading = first
+        index = 1
 
-    if first_line and not first_line.startswith("-"):
-        # First line is a heading
-        # Handle footnote references in heading
-        first_line = re.sub(r"\[\^([0-9,]+)\]", r"\\footnotemark[\1]", first_line)
-        # Handle italic formatting in heading
-        first_line = re.sub(r"\*([^*]+)\*", r"\\textit{\1}", first_line)
-        # Handle icon syntax in heading if processor provided
-        if process_heading_icons:
-            first_line = process_heading_icons(first_line)
-        list_lines.append(f"\\textbf{{\\textcolor{{ncblue}}{{{first_line}}}}}")
-        start_idx = 1
-
-    # First pass: collect all items to count them
-    items_data = []
-    i = start_idx
-    while i < len(lines):
-        line = lines[i].strip()
-
-        if not line:
-            i += 1
+    while index < len(lines):
+        line = lines[index].strip()
+        if not line.startswith("-"):
+            index += 1
             continue
 
-        if line.startswith("-"):
-            item_text = line[1:].strip()
-            # Handle footnote references
-            item_text = re.sub(
-                r"\[\^([0-9,]+)\]",
-                r"\\footnotemark[\1]",
-                item_text,
-            )
-            # Handle italic formatting: *text* -> \textit{text}
-            item_text = re.sub(r"\*([^*]+)\*", r"\\textit{\1}", item_text)
+        item = ListItem(text=line[1:].strip())
+        index += 1
+        while index < len(lines):
+            child = lines[index].strip()
+            if not child:
+                index += 1
+                continue
+            if not lines[index].startswith(_SUB_ITEM_PREFIXES):
+                break
+            item.children.append(child[1:].strip())
+            index += 1
+        model.items.append(item)
 
-            # Check if next lines are sub-items (indented dashes)
-            sub_items = []
-            j = i + 1
-            while j < len(lines):
-                next_line = lines[j].strip()
-                if not next_line:
-                    j += 1
-                    continue
-                # Check if it's an indented dash (starts with spaces/tabs followed by dash)
-                if lines[j].startswith(("  -", "\t-", "    -")):
-                    sub_item_text = next_line[1:].strip()
-                    sub_item_text = re.sub(
-                        r"\[\^([0-9,]+)\]",
-                        r"\\footnotemark[\1]",
-                        sub_item_text,
-                    )
-                    # Handle italic formatting: *text* -> \textit{text}
-                    sub_item_text = re.sub(
-                        r"\*([^*]+)\*", r"\\textit{\1}", sub_item_text
-                    )
-                    sub_items.append(sub_item_text)
-                    j += 1
-                else:
-                    break
-
-            items_data.append((item_text, sub_items))
-            i = j
-        else:
-            i += 1
-
-    # Check if we have only one item with no sub-items
-    if len(items_data) == 1 and not items_data[0][1]:
-        # Use \\[0pt] line breaks so consecutive single-item blocks stay in one
-        # LaTeX paragraph (no \parskip gaps) while each line starts on its own line.
-        # A bare "-" (empty item text) is a heading-only idiom - "Heading\n-" gets
-        # bold heading styling with no actual bullet. In that case there's no
-        # second line to break onto, so skip the line break entirely: appending
-        # it unconditionally left a dangling "\\[0pt]" with nothing after it,
-        # which wastes a full blank line before whatever follows.
-        if items_data[0][0]:
-            if list_lines:
-                list_lines[-1] += "\\\\[0pt]"
-            list_lines.append(items_data[0][0] + "\\\\[0pt]")
-    else:
-        # Multiple items or items with sub-items: use itemize environment
-        list_lines.append("\\vspace{-0.3em}\\begin{itemize}")
-        for item_text, sub_items in items_data:
-            list_lines.append(f"\\item {item_text}")
-            if sub_items:
-                list_lines.append("\\begin{itemize}")
-                for sub_item in sub_items:
-                    list_lines.append(f"\\item {sub_item}")
-                list_lines.append("\\end{itemize}")
-        list_lines.append("\\end{itemize}")
-
-    return "\n".join(list_lines)
+    return model

@@ -1,0 +1,35 @@
+<# The cover slide: no frame number, big coloured title, contact line.
+   Context: title, author, contacts (list of rendered LaTeX fragments). #>
+<# \autoslidetitlebar{0} is the shared title bar with the frame number
+   suppressed - see the frame_furniture block in preamble.tex.j2. #>
+\setbeamertemplate{frametitle}{\autoslidetitlebar{0}}
+\begin{frame}[t]
+\frametitle{\,}
+\vspace{<< theme.layout.title_content_raise >>}\hspace{<< theme.layout.title_content_indent >>}\begin{minipage}[t][<< theme.layout.content_height >>\textheight]{\textwidth}
+
+\vfill
+
+<% block title %>
+{<< theme.fonts.title_size >>\color{<< theme.colors.primary >>} << title >>}
+<% endblock %>
+
+<% block author %>
+<% if author %>
+<< author | inline >>
+
+<% endif %>
+<% endblock %>
+\vfill
+
+<% block contacts %>
+<% if contacts %>
+<< contacts | join("\\hspace{" + theme.layout.contact_gap + "}") >>
+
+\vspace{<< theme.layout.section_gap >>}
+
+<% endif %>
+<% endblock %>
+
+\end{minipage}
+\end{frame}
+\setbeamertemplate{frametitle}{\autoslidetitlebar{1}}

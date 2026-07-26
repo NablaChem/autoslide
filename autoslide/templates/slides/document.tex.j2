@@ -1,0 +1,8 @@
+<# The whole presentation. Context: slides (list of rendered frames),
+   plus the preamble's context (mode, tracing, pygments_styles). #>
+<% include "preamble.tex.j2" %>
+<% for slide in slides %>
+<< slide >>
+
+<% endfor %>
+\end{document}

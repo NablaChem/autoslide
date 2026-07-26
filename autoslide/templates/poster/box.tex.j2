@@ -1,0 +1,17 @@
+<# One ``###`` box on the poster. Context:
+     box                    layout.PosterBox
+     layout, render_block   see slides/layout.tex.j2
+     footnotes              footnotes.FootnoteList
+#>
+\begin{block}{<< box.title >>}
+<% block content %>
+<% include "slides/layout.tex.j2" %>
+<% endblock %>
+<% block footnotes %>
+<% if footnotes %>
+\vspace{<< theme.poster.footnote_gap >>}
+<% include "blocks/footnotes.tex.j2" %>
+<% endif %>
+<% endblock %>
+\end{block}
+\vspace{<< theme.poster.box_gap >>}

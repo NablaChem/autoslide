@@ -1,0 +1,3 @@
+<# The fake footnote line at the bottom of a slide or poster box.
+   Context: footnotes (footnotes.FootnoteList), width (LaTeX length). #>
+\parbox[t]{<< width >>}{<% for text in footnotes.starred %>\textcolor{<< theme.colors.muted >>}{<< text | inline(false) >>}<% if not loop.last %> <% endif %><% endfor %><% if footnotes.starred and footnotes.numbered %> <% endif %><% for marker, text in footnotes.numbered %>\textcolor{<< theme.colors.primary >>}{<< marker >>}\textcolor{<< theme.colors.primary >>}{|}~\textcolor{<< theme.colors.muted >>}{<< text | inline(false) >>}<% if not loop.last %> <% endif %><% endfor %>}

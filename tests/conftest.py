@@ -1,4 +1,5 @@
 import pytest
+
 from autoslide.parser import MarkdownBeamerParser
 
 
@@ -11,3 +12,17 @@ def parse(monkeypatch):
         return MarkdownBeamerParser(**kwargs).parse(text)
 
     return _parse
+
+
+@pytest.fixture
+def render(parse, tmp_path):
+    """Return a render(text, **renderer_kwargs) factory producing LaTeX."""
+    from autoslide.renderer import PosterRenderer, SlideRenderer
+
+    def _render(text, poster=False, **kwargs):
+        slides = parse(text)
+        renderer_class = PosterRenderer if poster else SlideRenderer
+        renderer = renderer_class(output_dir=str(tmp_path), no_cache=True, **kwargs)
+        return renderer.render_document(slides, "test")
+
+    return _render

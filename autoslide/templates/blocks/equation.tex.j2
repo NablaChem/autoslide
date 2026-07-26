@@ -1,0 +1,40 @@
+<# An equation, optionally with annotations attached to marked sub-expressions.
+   Context:
+     heading            bold coloured lead-in, may be empty
+     equation           equation body (already wrapped in tikzmarknodes)
+     annotations        list of equations.AnnotationDraw
+     above_vspace_pt    room the labels above need beyond the equation itself
+     below_vspace_pt    likewise below
+#>
+<% block heading %>
+<% if heading %>
+\textbf{\textcolor{<< theme.colors.primary >>}{<< heading | inline >>}}
+<% endif %>
+<% endblock %>
+<% if above_vspace_pt > 0 %>
+\vspace{<< "%.2f" | format(above_vspace_pt) >>pt}
+<% endif %>
+<% block equation %>
+\begin{align}\abovedisplayskip=0pt\belowdisplayskip=0pt<< equation >>\end{align}
+<% endblock %>
+<% if annotations %>
+<% block annotations %>
+\begin{tikzpicture}[remember picture, overlay]
+<% for a in annotations %>
+    %<< a.side >> annotation on << a.node >>
+<# Tint the gap between the marked symbol and the leader line so the highlight
+   reads as one shape. #>
+\path[fill=<< theme.colors.node_fill >>,draw=none,line width=0pt] (<< a.node >>.<< a.corner >> west) -- (<< a.node >>.<< a.corner >> east) -- ([yshift=<< a.stem_pt | num >>pt]<< a.node >>.base east) -- ([yshift=<< a.stem_pt | num >>pt]<< a.node >>.base west) -- cycle;
+    \draw[<< theme.colors.primary >>, line width=<< theme.annotations.line_width >>] ([yshift=<< a.stem_pt | num >>pt]<< a.node >>.base west) -- ([yshift=<< a.stem_pt | num >>pt]<< a.node >>.base east);
+    \draw[<< theme.colors.primary >>,] ([yshift=<< a.stem_pt | num >>pt]<< a.node >>.base) -- ([yshift=<< a.leader_pt | num >>pt]<< a.node >>.base);
+    \node[<< a.side >>=<< a.label_offset_pt | num >>pt of << a.node >>.base,anchor=<< a.anchor >>,inner sep=0,outer sep=0,xshift=<< a.xshift >>,yshift=<< a.yshift >>,text=<< theme.colors.primary >>] {<< theme.fonts.annotation_size >> << a.text >>};
+
+<% endfor %>
+\end{tikzpicture}
+<% endblock %>
+<% endif %>
+<% if below_vspace_pt > 0 %>
+<# An overlay tikzpicture leaves an open paragraph, so a bare \vspace here
+   would be absorbed instead of pushing the next block down. #>
+\par\vspace{<< "%.2f" | format(below_vspace_pt) >>pt}
+<% endif %>

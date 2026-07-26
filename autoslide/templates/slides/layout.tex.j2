@@ -1,0 +1,23 @@
+<# Sections (``---``) and columns (``-|-``) of one slide or poster box.
+   Context:
+     layout        layout.SlideLayout
+     render_block  callable(LayoutItem, has_columns) -> LaTeX
+#>
+<% for section in layout.sections %>
+<% if not loop.first %>
+\vspace{<< theme.layout.section_gap >>}
+<% endif %>
+\begin{columns}[t]
+<% for column in section.columns %>
+<% if section.has_columns %>
+\begin{column}[t]{<< theme.layout.column_width >>\textwidth}
+<% else %>
+\begin{column}[t]{\textwidth}
+<% endif %>
+<% for item in column.items %>
+<< render_block(item, section.has_columns) >>
+<% endfor %>
+\end{column}
+<% endfor %>
+\end{columns}
+<% endfor %>
