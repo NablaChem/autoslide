@@ -113,8 +113,8 @@ class PosterLayout:
 class ImageScaling:
     """(width x \\linewidth, height x \\textheight, vertical shift in em)."""
 
-    slide: Tuple[float, float, float] = (1.5, 0.7, 0.0)
-    column: Tuple[float, float, float] = (1.0, 0.7, -0.5)
+    slide: Tuple[float, float, float] = (1.5, 0.76, 0.0)
+    column: Tuple[float, float, float] = (1.0, 0.76, -0.5)
     poster: Tuple[float, float, float] = (0.95, 0.55, 0.0)
 
 

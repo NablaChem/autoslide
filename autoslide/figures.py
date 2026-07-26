@@ -1,4 +1,5 @@
 import os
+import sys
 import hashlib
 import json
 import tempfile
@@ -30,6 +31,14 @@ def generate_figure_file(
     is_poster: bool = False,
 ):
     """Generate a single figure file with the specified parameters."""
+    if "figsize" in code:
+        print(
+            f"{filename}: Warning: plot code passes its own figsize, overriding the "
+            "canvas size autoslide otherwise keeps consistent across figures - this "
+            "may lead to inconsistent layout.",
+            file=sys.stderr,
+        )
+
     # Create Python script for subplot execution (filename relative to output_dir)
     python_script = create_matplotlib_script(code, block_type, filename, has_columns, is_poster)
 
@@ -53,6 +62,8 @@ def generate_figure_file(
                 f"Code:\n{code}\n\n"
                 f"Error output:\n{result.stderr}"
             )
+        elif result.stderr:
+            print(f"{filename}: {result.stderr.strip()}", file=sys.stderr)
 
     finally:
         # Clean up temporary script
@@ -65,8 +76,13 @@ def generate_figure_file(
 # Centralized plot styling configuration
 PLOT_STYLE = {
     # Figure sizes
-    "figsize_single_column": (10, 5.625),  # 16:9 aspect ratio
-    "figsize_two_column": (8, 8),  # 4:3 aspect ratio
+    "figsize_single_column": (11, 5.625),  # widened from 16:9 to fill more of the slide width
+    "figsize_two_column": (5.8, 5.625),  # same height as figsize_single_column, so tick/label/legend
+    # sizes (set as absolute point sizes below) come out at the same size relative to the plot on
+    # both single- and two-column slides - the two are scaled to the same final on-slide height
+    # (both bound by the same height_limit fraction in theme.ImageScaling), so equal source heights
+    # give equal effective font sizes. Width is chosen to fill the column width without becoming the
+    # binding constraint itself (which would break that equality).
     "figsize_poster_single": (14, 10),  # A0 half-column, no sub-columns
     "figsize_poster_columns": (8, 8),  # A0 half-column with -|- sub-columns
     # Font sizes (doubled for better readability)
@@ -116,57 +132,76 @@ def create_matplotlib_script(
     if block_type == BlockType.SCHEMATIC:
         style_config = f"""
 # Configure for schematic (no tick marks, thick axes in navy blue)
+# Applied to every panel, so multi-panel figures (e.g. from plt.subplots) stay consistent
 ncblue = '{ncblue}'
-ax = plt.gca()
-ax.spines['left'].set_linewidth({spine_width})
-ax.spines['left'].set_color(ncblue)
-ax.spines['bottom'].set_linewidth({spine_width})
-ax.spines['bottom'].set_color(ncblue)
-ax.spines['top'].set_visible(False)
-ax.spines['right'].set_visible(False)
+for ax in plt.gcf().get_axes():
+    ax.spines['left'].set_linewidth({spine_width})
+    ax.spines['left'].set_color(ncblue)
+    ax.spines['bottom'].set_linewidth({spine_width})
+    ax.spines['bottom'].set_color(ncblue)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
 
-# Set axis label colors to navy blue
-ax.xaxis.label.set_color(ncblue)
-ax.yaxis.label.set_color(ncblue)
+    # Set axis label colors to navy blue
+    ax.xaxis.label.set_color(ncblue)
+    ax.yaxis.label.set_color(ncblue)
 
-# Remove all ticks
-ax.set_xticks([])
-ax.set_yticks([])
+    # Remove all ticks
+    ax.set_xticks([])
+    ax.set_yticks([])
 """
     else:  # PLOT
         style_config = f"""
 # Configure for plot (with tick marks, thick axes in navy blue)
+# Applied to every panel, so multi-panel figures (e.g. from plt.subplots) stay consistent
 ncblue = '{ncblue}'
-ax = plt.gca()
-ax.spines['left'].set_linewidth({spine_width})
-ax.spines['left'].set_color(ncblue)
-ax.spines['bottom'].set_linewidth({spine_width})
-ax.spines['bottom'].set_color(ncblue)
-ax.spines['top'].set_visible(False)
-ax.spines['right'].set_visible(False)
+for ax in plt.gcf().get_axes():
+    ax.spines['left'].set_linewidth({spine_width})
+    ax.spines['left'].set_color(ncblue)
+    ax.spines['bottom'].set_linewidth({spine_width})
+    ax.spines['bottom'].set_color(ncblue)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
 
-# Set axis label colors to navy blue
-ax.xaxis.label.set_color(ncblue)
-ax.yaxis.label.set_color(ncblue)
+    # Set axis label colors to navy blue
+    ax.xaxis.label.set_color(ncblue)
+    ax.yaxis.label.set_color(ncblue)
 
-# Keep tick marks for plots with navy blue color
-plt.tick_params(axis='both', which='major', width=2, length=6, colors=ncblue)
+    # Keep tick marks for plots with navy blue color, as thick as the axis lines
+    ax.tick_params(axis='both', which='major', direction='out', width={spine_width}, length=6, colors=ncblue)
 """
 
     script = f"""
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 
-# Configure matplotlib with layout-specific parameters
-plt.figure(figsize={figsize})
+# Configure matplotlib with layout-specific parameters.
+# Set as the default figure size (rather than calling plt.figure() here) so
+# that the canvas stays consistent no matter how the user creates the figure -
+# plt.plot(...), or plt.subplots(rows, cols) for a multi-panel figure - as
+# long as they don't pass their own figsize.
+plt.rcParams['figure.figsize'] = {figsize}
 
-# Set font to match beamer (Fira Sans if available, fallback to sans-serif)
+# Note: deliberately not using constrained_layout - it reserves per-axes
+# padding for in-axes legends, which can shrink the plotted area a lot more
+# on a multi-panel figure (one reservation per panel) than on a single-panel
+# one. plt.tight_layout() below plus a savefig() with no bbox_inches='tight'
+# keeps this predictable: the saved canvas always comes out at the declared
+# figsize, so a plot with one panel and a plot with several panels (e.g. via
+# plt.subplots(1, 3)) end up with the same aspect ratio and the same fraction
+# of the canvas actually used for plotting.
+
+# Set font to match beamer (Fira Sans Extra Condensed if available, fallback to sans-serif)
 try:
-    plt.rcParams['font.family'] = ['Fira Sans', 'DejaVu Sans', 'sans-serif']
+    plt.rcParams['font.family'] = ['Fira Sans Extra Condensed', 'DejaVu Sans', 'sans-serif']
 except:
     plt.rcParams['font.family'] = 'sans-serif'
+plt.rcParams['mathtext.fontset'] = 'custom'
+plt.rcParams['mathtext.it'] = 'Fira Sans Extra Condensed:italic'
+plt.rcParams['mathtext.default'] = 'regular'
 
 plt.rcParams['font.size'] = {font_size}
 plt.rcParams['axes.labelsize'] = {label_size}
@@ -183,15 +218,35 @@ plt.rcParams['yaxis.labellocation'] = 'top'
 # Configure legend styling (no frame by default)
 plt.rcParams['legend.frameon'] = False
 plt.rcParams['legend.framealpha'] = 0.0
+plt.rcParams['legend.handletextpad'] = 0.1
+plt.rcParams['legend.handlelength'] = 1.0
+
+# Tick direction and size, matching plotstyle.py
+plt.rcParams['xtick.direction'] = 'out'
+plt.rcParams['ytick.direction'] = 'out'
+plt.rcParams['xtick.major.size'] = 4
+plt.rcParams['ytick.major.size'] = 4
+plt.rcParams['xtick.minor.size'] = 2
+plt.rcParams['ytick.minor.size'] = 2
 
 # User code
 {user_code}
 
 {style_config}
 
-# Save figure
+# A figure/subplots call in the user code above starts a fresh figure; only
+# the last one created gets saved below, so anything drawn on an earlier one
+# is silently dropped. Warn (but don't fail) so the user notices.
+if len(plt.get_fignums()) > 1:
+    print(
+        "Warning: plot code created more than one matplotlib figure; "
+        "only the last one is saved, which may lead to inconsistent layout.",
+        file=sys.stderr,
+    )
+
+# Save figure at the exact configured figsize (see note above - no bbox_inches='tight')
 plt.tight_layout()
-plt.savefig('{output_filename}', format='pdf', bbox_inches='tight', dpi=300)
+plt.savefig('{output_filename}', format='pdf', dpi=300)
 plt.close()
 """
     return script
