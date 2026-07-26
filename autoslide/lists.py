@@ -77,9 +77,14 @@ def format_list(content: str, process_heading_icons=None) -> str:
     if len(items_data) == 1 and not items_data[0][1]:
         # Use \\[0pt] line breaks so consecutive single-item blocks stay in one
         # LaTeX paragraph (no \parskip gaps) while each line starts on its own line.
-        if list_lines:
-            list_lines[-1] += "\\\\[0pt]"
+        # A bare "-" (empty item text) is a heading-only idiom - "Heading\n-" gets
+        # bold heading styling with no actual bullet. In that case there's no
+        # second line to break onto, so skip the line break entirely: appending
+        # it unconditionally left a dangling "\\[0pt]" with nothing after it,
+        # which wastes a full blank line before whatever follows.
         if items_data[0][0]:
+            if list_lines:
+                list_lines[-1] += "\\\\[0pt]"
             list_lines.append(items_data[0][0] + "\\\\[0pt]")
     else:
         # Multiple items or items with sub-items: use itemize environment

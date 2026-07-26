@@ -84,7 +84,7 @@ def format_annotated_equation(block: Block, has_columns: bool = False, node_coun
     # Determine optimal placement for annotations
     heading_hint = f" [{heading[:40]}]" if heading else ""
     print(f"Placing annotations for equation{heading_hint}", file=sys.stderr, flush=True)
-    above_placements, below_placements, above_vspace_em, below_vspace_em = (
+    above_placements, below_placements, above_vspace_pt, below_vspace_pt = (
         determine_annotation_placement(
             annotated_equation, annotation_specs, node_names, has_columns, node_counter,
             output_dir, equation_content=equation_content,
@@ -114,8 +114,8 @@ def format_annotated_equation(block: Block, has_columns: bool = False, node_coun
         latex_parts = []
 
         # Space above equation to contain above annotations within the tcolorbox bbox
-        if above_vspace_em > 0:
-            latex_parts.append(f"\\vspace{{{above_vspace_em:.2f}em}}")
+        if above_vspace_pt > 0:
+            latex_parts.append(f"\\vspace{{{above_vspace_pt:.2f}pt}}")
 
         # Add the equation first so nodes are defined
         latex_parts.append(
@@ -125,9 +125,12 @@ def format_annotated_equation(block: Block, has_columns: bool = False, node_coun
         # Add annotation lines and text (background fill is now handled by tikzmarknode)
         latex_parts.extend(tikz_code)
 
-        # Space below equation to contain below annotations within the tcolorbox bbox
-        if below_vspace_em > 0:
-            latex_parts.append(f"\\vspace{{{below_vspace_em:.2f}em}}")
+        # An overlay tikzpicture's zero-size box opens a paragraph that never
+        # explicitly closes, so a \vspace placed right after it lands mid-paragraph
+        # and is silently absorbed instead of pushing the next block down - \par
+        # first forces it back into vertical mode where \vspace actually applies.
+        if below_vspace_pt > 0:
+            latex_parts.append(f"\\par\\vspace{{{below_vspace_pt:.2f}pt}}")
     else:
         # No annotations, just the equation
         latex_parts = [
@@ -234,7 +237,7 @@ def determine_annotation_placement(
     """Determine optimal placement for annotations using bounding box analysis.
 
     Returns:
-        Tuple of (above_placements, below_placements, above_vspace_em, below_vspace_em)
+        Tuple of (above_placements, below_placements, above_vspace_pt, below_vspace_pt)
     """
     if not annotation_specs:
         return {}, {}, 0.0, 0.0
@@ -274,33 +277,39 @@ def determine_annotation_placement(
         eq_ink=eq_ink,
     )
 
-    # Step 3: Compute exact vspaces from measured equation bbox and annotation levels.
-    # Each annotation's extent above/below the equation baseline is:
-    #   above: node_shift + level  (node_shift >= 0 for above annotations)
-    #   below: -node_shift + level (node_shift <= 0 for below annotations)
-    # Add ANNOT_TEXT_BUFFER_PT to cover the annotation text height beyond the line endpoint.
+    # Step 3: Compute the tight vspace needed beyond the equation's own natural
+    # typeset extent, using exactly the same geometry (baseline_y, node_shifts,
+    # bounding_boxes, chosen level/anchor) the placement search itself used - no
+    # separate heuristic buffer, no em-per-pt approximation. eq_height/eq_depth
+    # are the equation's own natural extent above/below its baseline (from a
+    # plain \ht/\dp box measurement, so unaffected by the page-coordinate sign
+    # convention); annotations only need extra room for whatever they add
+    # beyond that natural extent.
     eq_height, eq_depth = eq_dimensions
-    ANNOT_TEXT_BUFFER_PT = 5.0  # covers annotation text height above/below the line endpoint
+    baseline_y = eq_ink.baseline_y if eq_ink is not None else 0.0
+    natural_top_y = baseline_y - eq_height
+    natural_bottom_y = baseline_y + eq_depth
 
-    if above_placements:
-        max_above = max(
-            node_shifts.get(i, 0.0) + level + ANNOT_TEXT_BUFFER_PT
-            for i, (level, _) in above_placements.items()
-        )
-        above_vspace_em = max(0.0, (max_above - eq_height) / 12.0)
-    else:
-        above_vspace_em = 0.0
+    # CLEARANCE_PT is the same minimum gap used everywhere else in this module
+    # to keep labels from touching other ink - applying it here too means a
+    # label's far edge isn't flush against whatever block follows the equation.
+    top_needed_y = natural_top_y
+    for i, (level, _) in above_placements.items():
+        height_pt = bounding_boxes.get(i, (0.0, 0.0))[1]
+        node_y = baseline_y - node_shifts.get(i, 0.0)
+        far_y = node_y - level - height_pt - CLEARANCE_PT
+        top_needed_y = min(top_needed_y, far_y)
+    above_vspace_pt = max(0.0, natural_top_y - top_needed_y)
 
-    if below_placements:
-        max_below = max(
-            -node_shifts.get(i, 0.0) + level + ANNOT_TEXT_BUFFER_PT
-            for i, (level, _) in below_placements.items()
-        )
-        below_vspace_em = max(0.0, (max_below - eq_depth) / 12.0)
-    else:
-        below_vspace_em = 0.0
+    bottom_needed_y = natural_bottom_y
+    for i, (level, _) in below_placements.items():
+        height_pt = bounding_boxes.get(i, (0.0, 0.0))[1]
+        node_y = baseline_y - node_shifts.get(i, 0.0)
+        far_y = node_y + level + height_pt + CLEARANCE_PT
+        bottom_needed_y = max(bottom_needed_y, far_y)
+    below_vspace_pt = max(0.0, bottom_needed_y - natural_bottom_y)
 
-    return above_placements, below_placements, above_vspace_em, below_vspace_em
+    return above_placements, below_placements, above_vspace_pt, below_vspace_pt
 
 
 def measure_annotation_bounding_boxes(
