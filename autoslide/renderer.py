@@ -34,19 +34,32 @@ from .theme import Theme, default_theme
 class Cover:
     title: str = ""
     author: str = ""
+    affiliation: str = ""
     email: str = ""
     web: str = ""
 
     def __bool__(self) -> bool:
-        return bool(self.title or self.author or self.email or self.web)
+        return bool(
+            self.title or self.author or self.affiliation or self.email or self.web
+        )
 
 
 #: ``:field:`` lines on a cover slide, and where they land on the Cover.
-_COVER_FIELDS = {":author:": "author", ":email:": "email", ":web:": "web"}
+_COVER_FIELDS = {
+    ":author:": "author",
+    ":affiliation:": "affiliation",
+    ":email:": "email",
+    ":web:": "web",
+}
+#: These fields keep their ``:name:`` prefix on the value because it doubles
+#: as ``:name:`` icon syntax (see ``icons.py``) once ``_contacts`` runs it
+#: through the icon renderer.
+_ICON_FIELDS = {"email", "web"}
 
 
 def cover_metadata(blocks: List[Block]) -> Cover:
-    """Read the title and ``:author:``/``:email:``/``:web:`` lines off a cover slide.
+    """Read the title and ``:author:``/``:affiliation:``/``:email:``/``:web:``
+    lines off a cover slide.
 
     The ``:email:``/``:web:`` prefixes are kept: they double as icon syntax.
     """
@@ -60,10 +73,10 @@ def cover_metadata(blocks: List[Block]) -> Cover:
                 for prefix, field in _COVER_FIELDS.items():
                     if line.startswith(prefix):
                         value = line[len(prefix) :].strip()
-                        if field == "author":
-                            setattr(cover, field, value)
-                        else:
+                        if field in _ICON_FIELDS:
                             setattr(cover, field, f"{prefix} {value}")
+                        else:
+                            setattr(cover, field, value)
     return cover
 
 
@@ -171,10 +184,14 @@ class SlideRenderer:
             contacts=self._contacts(cover),
         )
 
+    #: Cover fields shown as contact icons under the title. Posters drop the
+    #: email address - overridden in ``PosterRenderer``.
+    _contact_fields = ("email", "web")
+
     def _contacts(self, cover: Cover) -> List[str]:
         return [
             icons.process_icons(value, self.output_dir, self.theme, self.engine)
-            for value in (cover.email, cover.web)
+            for value in (getattr(cover, field) for field in self._contact_fields)
             if value
         ]
 
@@ -266,6 +283,8 @@ class PosterRenderer(SlideRenderer):
     full_width_context = "poster"
     column_context = "poster"
     equations_in_block = True
+    #: The poster header shows the affiliation instead of an email address.
+    _contact_fields = ("web",)
 
     def render_document(self, slides: List[List[Block]], title: str = "") -> str:
         cover = next(
@@ -287,6 +306,7 @@ class PosterRenderer(SlideRenderer):
             "poster/document.tex.j2",
             title=cover.title,
             author=cover.author,
+            affiliation=cover.affiliation,
             contacts=self._contacts(cover),
             frame_options="[t,fragile]" if has_code else "[t]",
             groups=groups,

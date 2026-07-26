@@ -40,12 +40,19 @@
 <% block geometry %>
 <% if mode == "poster" %>
 \usepackage[size=<< theme.poster.paper_size >>,orientation=<< theme.poster.orientation >>,scale=<< theme.poster.scale >>]{beamerposter}
-<% endif %>
+\geometry{margin=<< theme.poster.margin >>}
+\setbeamersize
+{
+    text margin left=<< theme.poster.margin >>,
+    text margin right=<< theme.poster.margin >>
+}
+<% else %>
 \setbeamersize
 {
     text margin left=<< theme.layout.text_margin >>,
     text margin right=<< theme.layout.text_margin >>
 }
+<% endif %>
 <% endblock %>
 
 <% block frame_furniture %>
@@ -54,13 +61,26 @@
 \setbeamercolor{frametitle}{bg=<< theme.colors.primary >>, fg=<< theme.colors.on_primary >>}
 \setbeamertemplate{navigation symbols}{}
 <% if mode == "poster" %>
-\setbeamercolor{block title}{bg=<< theme.colors.primary >>, fg=<< theme.colors.on_primary >>}
 \setbeamercolor{block body}{bg=white}
-\setbeamertemplate{block title}{%
-  \begin{beamercolorbox}[wd=\linewidth,dp=<< theme.poster.block_title_depth >>,leftskip=<< theme.poster.block_title_padding >>,rightskip=<< theme.poster.block_title_padding >>]{block title}%
-    \usebeamerfont{block title}\rule{0pt}{<< theme.poster.block_title_strut >>}\insertblocktitle%
-  \end{beamercolorbox}%
+<# The default theme's "block begin"/"block end" templates hardcode their own
+   beamercolorbox around \insertblocktitle (beamerinnerthemedefault.sty); a
+   plain \setbeamertemplate{block title}{...} is never consulted by them, so
+   the heading has to be re-styled here at the "block begin" level instead. #>
+\setbeamertemplate{block begin}{%
+  \par\vskip\medskipamount%
+  \begin{beamercolorbox}[colsep*=.75ex,leftskip=<< theme.poster.block_title_padding >>,rightskip=<< theme.poster.block_title_padding >>]{block title}%
+    \color{<< theme.colors.primary >>}%
+    \rule{0pt}{<< theme.poster.block_title_strut >>}%
+    \scalebox{<< theme.poster.heading_scale >>}{<< theme.fonts.section_title_size >> \insertblocktitle}%
+    \par\vspace{<< theme.poster.heading_rule_gap >>}%
+    \rule{\hsize}{<< theme.poster.heading_rule_width >>}%
+  \end{beamercolorbox}\noframebreak%
+  {\parskip0pt\par}%
+  \usebeamerfont{block body}%
+  \begin{beamercolorbox}[colsep*=.75ex,vmode]{block body}%
+    \vskip-.25ex\vbox{}%
 }
+\setbeamertemplate{block end}{\end{beamercolorbox}\vskip\smallskipamount}
 \setbeamertemplate{headline}{}
 \setbeamertemplate{footline}{}
 \setbeamertemplate{frametitle}{}
@@ -94,6 +114,17 @@
 \setlength{\leftmargini}{<< theme.layout.itemize_margins[0] >>}
 \setlength{\leftmarginii}{<< theme.layout.itemize_margins[1] >>}
 \setlength{\leftmarginiii}{<< theme.layout.itemize_margins[2] >>}
+<% endblock %>
+
+<% block annotation_font %>
+<# ``\scriptsize`` shrinks relative to body text under beamerposter's
+   "scale" option (its font-size table isn't a linear multiple), so poster
+   annotation labels need an explicit boost to match the slide's ratio. #>
+<% if mode == "poster" %>
+\newcommand{\annotationtext}[1]{\scalebox{<< theme.poster.annotation_scale >>}{<< theme.fonts.annotation_size >> #1}}
+<% else %>
+\newcommand{\annotationtext}[1]{<< theme.fonts.annotation_size >> #1}
+<% endif %>
 <% endblock %>
 
 <% block footnotes %>

@@ -5,6 +5,7 @@
      annotations        list of equations.AnnotationDraw
      above_vspace_pt    room the labels above need beyond the equation itself
      below_vspace_pt    likewise below
+     mode               "slide" or "poster" - posters get no equation numbers
 #>
 <% block heading %>
 <% if heading %>
@@ -18,7 +19,11 @@
 <# Set these before \begin{align}, not inside it: amsmath queues the
    abovedisplayskip glue at \begin{align} time, so setting it inside the
    environment is one beat too late to suppress that glue. #>
+<% if mode == "poster" %>
+\abovedisplayskip=0pt\belowdisplayskip=0pt\begin{align*}<< equation >>\end{align*}
+<% else %>
 \abovedisplayskip=0pt\belowdisplayskip=0pt\begin{align}<< equation >>\end{align}
+<% endif %>
 <% endblock %>
 <% if annotations %>
 <% block annotations %>
@@ -30,7 +35,7 @@
 \path[fill=<< theme.colors.node_fill >>,draw=none,line width=0pt] (<< a.node >>.<< a.corner >> west) -- (<< a.node >>.<< a.corner >> east) -- ([yshift=<< a.stem_pt | num >>pt]<< a.node >>.base east) -- ([yshift=<< a.stem_pt | num >>pt]<< a.node >>.base west) -- cycle;
     \draw[<< theme.colors.primary >>, line width=<< theme.annotations.line_width >>] ([yshift=<< a.stem_pt | num >>pt]<< a.node >>.base west) -- ([yshift=<< a.stem_pt | num >>pt]<< a.node >>.base east);
     \draw[<< theme.colors.primary >>,] ([yshift=<< a.stem_pt | num >>pt]<< a.node >>.base) -- ([yshift=<< a.leader_pt | num >>pt]<< a.node >>.base);
-    \node[<< a.side >>=<< a.label_offset_pt | num >>pt of << a.node >>.base,anchor=<< a.anchor >>,inner sep=0,outer sep=0,xshift=<< a.xshift >>,yshift=<< a.yshift >>,text=<< theme.colors.primary >>] {<< theme.fonts.annotation_size >> << a.text >>};
+    \node[<< a.side >>=<< a.label_offset_pt | num >>pt of << a.node >>.base,anchor=<< a.anchor >>,inner sep=0,outer sep=0,xshift=<< a.xshift >>,yshift=<< a.yshift >>,text=<< theme.colors.primary >>] {\annotationtext{<< a.text >>}};
 
 <% endfor %>
 \end{tikzpicture}

@@ -103,6 +103,7 @@ def render_annotated_equation(
             annotations=draws,
             above_vspace_pt=above,
             below_vspace_pt=below,
+            mode=mode,
         )
 
     base_above = theme.annotations.base_above_vspace_pt
@@ -245,13 +246,32 @@ class LabelBox(NamedTuple):
     depth: float  # below it
 
 
+_UNIT_LENGTH_RE = re.compile(r"^(-?[0-9.]+)([a-zA-Z%]*)$")
+
+
+def _scale_length(value: str, factor: float) -> str:
+    """Scale a LaTeX length literal like ``"0.4mm"`` or ``"2pt"`` by ``factor``.
+
+    Only absolute units need this - ``em``/``ex`` already track the current
+    font size, so they scale for free wherever they're used.
+    """
+    match = _UNIT_LENGTH_RE.match(value.strip())
+    if not match:
+        return value
+    number, unit = match.groups()
+    return f"{_number(float(number) * factor)}{unit}"
+
+
 def scale_for_label_size(measurements: "Measurements", config):
-    r"""Scale the vertical geometry to the label size actually measured.
+    r"""Scale the geometry to the label size actually measured.
 
     The pt constants were chosen against slide-sized annotation text. The same
     ``\scriptsize`` label on an A0 poster is ~2.5x taller, and leaving a 15pt
     first level would draw it straight through the equation. The median label
     height is used, so one unusually tall label doesn't stretch the whole grid.
+    Absolute-unit lengths (stroke widths, node padding) get the same factor,
+    so lines and markers stay proportionate to the now-larger labels instead
+    of looking hairline-thin next to them.
     """
     heights = [box.height for box in measurements.bounding_boxes.values() if box.height > 0]
     if not heights or config.reference_label_height_pt <= 0:
@@ -275,6 +295,9 @@ def scale_for_label_size(measurements: "Measurements", config):
         stem_below_pt=config.stem_below_pt * factor,
         above_label_offset_pt=config.above_label_offset_pt * factor,
         label_nudge_pt=config.label_nudge_pt * factor,
+        label_xshift_below=_scale_length(config.label_xshift_below, factor),
+        line_width=_scale_length(config.line_width, factor),
+        node_inner_sep=_scale_length(config.node_inner_sep, factor),
     )
 
 

@@ -4,17 +4,23 @@
 <% include "preamble.tex.j2" %>
 \begin{frame}<< frame_options >>
 <% block title %>
-\begin{center}{<< theme.fonts.poster_title_size >>\color{<< theme.colors.primary >>} << title >>}\end{center}
+\begin{center}
+{<< theme.fonts.poster_title_size >>\bfseries\color{<< theme.colors.primary >>} << title >>}
 
 <% if author %>
 << author | inline >>
+
+<% endif %>
+<% if affiliation %>
+<< affiliation | inline >>
 
 <% endif %>
 <% if contacts %>
 << contacts | join("\\hspace{" + theme.layout.contact_gap + "}") >>
 
 <% endif %>
-\hrule
+\end{center}
+\hrule height << theme.poster.title_rule_width >>
 \vspace{<< theme.poster.title_rule_gap >>}
 
 <% endblock %>

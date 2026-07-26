@@ -101,12 +101,25 @@ class PosterLayout:
     paper_size: str = "a0"
     orientation: str = "portrait"
     scale: str = "1.4"
+    margin: str = "1cm"
     block_title_padding: str = "1em"
     block_title_depth: str = "0.5em"
     block_title_strut: str = "1.5em"
     box_gap: str = "0.5em"
     footnote_gap: str = "0.3em"
     title_rule_gap: str = "0.5em"
+    #: LaTeX's default \hrule height (0.4pt) is barely visible at A0 size.
+    title_rule_width: str = "1mm"
+    #: Section headings measured ~1.2x smaller than desired relative to page
+    #: width when compared against a reference underline+icon poster style;
+    #: this scales the block title font up to match.
+    heading_scale: str = "0.56"
+    heading_rule_width: str = "1pt"
+    heading_rule_gap: str = "0.3em"
+    #: beamerposter's "scale" grows \normalsize faster than \scriptsize (LaTeX's
+    #: size table isn't linear), so annotation labels end up smaller relative to
+    #: body text than on slides. This restores the slide's label:body ratio.
+    annotation_scale: str = "1.4"
 
 
 @dataclass(frozen=True)

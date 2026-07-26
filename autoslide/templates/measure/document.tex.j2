@@ -58,12 +58,16 @@
 }
 
 % Render the equation with its baseline node so node positions can be read off
+<% if mode == "poster" %>
+\begin{align*}<< equation >>\end{align*}
+<% else %>
 \begin{align}<< equation >>\end{align}
+<% endif %>
 
 <% for letter, index, label in labels %>
 % Measure annotation << index >>: << label >>
 \newsavebox{\measurebox<< letter >>}
-\sbox{\measurebox<< letter >>}{<< theme.fonts.annotation_size >> << label >>}
+\sbox{\measurebox<< letter >>}{\annotationtext{<< label >>}}
 \typeout{ANNOTATION<< index >>: width=\the\wd\measurebox<< letter >>, height=\the\ht\measurebox<< letter >>, depth=\the\dp\measurebox<< letter >>}
 <% endfor %>
 
