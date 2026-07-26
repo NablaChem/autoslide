@@ -138,12 +138,18 @@ class Annotations:
     #: Caps the ink raster so an A0 poster page doesn't blow up memory; the
     #: effective dpi is lowered to fit (poster text is proportionally larger).
     ink_max_megapixels: float = 12.0
-    clearance_pt: float = 3.0
+    #: Minimum vertical gap kept above/below an equation regardless of
+    #: annotations, so a plain equation and an annotated one leave the same
+    #: outer margin to the surrounding text. Annotation geometry only ever
+    #: widens this floor, never shrinks it.
+    base_above_vspace_pt: float = 2.0
+    base_below_vspace_pt: float = 6.0
+    clearance_pt: float = 2.0
     leader_half_width_pt: float = 2.0
-    leader_clearance_pt: float = 2.0
-    first_level_below_pt: float = 15.0
-    first_level_above_pt: float = 20.0
-    level_step_pt: float = 7.5
+    leader_clearance_pt: float = 1.5
+    first_level_below_pt: float = 13.0
+    first_level_above_pt: float = 12.0
+    level_step_pt: float = 5.0
     max_level_tiers: int = 8
     #: Safety valve against pathological inputs in the placement search.
     max_backtrack_visits: int = 500_000
@@ -151,7 +157,7 @@ class Annotations:
     # How much of the container a label may occupy. The container's own edges
     # are measured, not assumed - see templates/measure/document.tex.j2.
     #: Breathing room between a label and the edge of its container.
-    container_padding_pt: float = 5.0
+    container_padding_pt: float = 3.0
     #: Slack added to a label's own width before the fit check.
     horizontal_padding_pt: float = 10.0
 
@@ -161,8 +167,8 @@ class Annotations:
     reference_label_height_pt: float = 6.0
 
     #: Gap between the marked symbol and where the leader line starts.
-    stem_above_pt: float = 13.0
-    stem_below_pt: float = 8.0
+    stem_above_pt: float = 12.0
+    stem_below_pt: float = 5.0
     #: The label sits this much closer to the equation than its leader line ends.
     above_label_offset_pt: float = -5.0
     label_nudge_pt: float = 3.0

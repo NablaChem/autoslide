@@ -105,9 +105,12 @@ def render_annotated_equation(
             below_vspace_pt=below,
         )
 
+    base_above = theme.annotations.base_above_vspace_pt
+    base_below = theme.annotations.base_below_vspace_pt
+
     # If no annotations, render as simple equation
     if not annotation_specs:
-        return _render(equation_content, [], 0.0, 0.0), node_counter
+        return _render(equation_content, [], base_above, base_below), node_counter
 
     # Create tikzmarknode-wrapped equation
     annotated_equation, node_names, node_counter = create_tikzmarknode_equation_new(
@@ -131,10 +134,15 @@ def render_annotated_equation(
         annotation_specs, node_names, above_placements, below_placements, config=config
     )
     if not draws:
-        return _render(annotated_equation, [], 0.0, 0.0), node_counter
+        return _render(annotated_equation, [], base_above, base_below), node_counter
 
     return (
-        _render(annotated_equation, draws, above_vspace_pt, below_vspace_pt),
+        _render(
+            annotated_equation,
+            draws,
+            max(above_vspace_pt, base_above),
+            max(below_vspace_pt, base_below),
+        ),
         node_counter,
     )
 

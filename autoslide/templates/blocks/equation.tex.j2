@@ -15,7 +15,10 @@
 \vspace{<< "%.2f" | format(above_vspace_pt) >>pt}
 <% endif %>
 <% block equation %>
-\begin{align}\abovedisplayskip=0pt\belowdisplayskip=0pt<< equation >>\end{align}
+<# Set these before \begin{align}, not inside it: amsmath queues the
+   abovedisplayskip glue at \begin{align} time, so setting it inside the
+   environment is one beat too late to suppress that glue. #>
+\abovedisplayskip=0pt\belowdisplayskip=0pt\begin{align}<< equation >>\end{align}
 <% endblock %>
 <% if annotations %>
 <% block annotations %>
@@ -35,6 +38,8 @@
 <% endif %>
 <% if below_vspace_pt > 0 %>
 <# An overlay tikzpicture leaves an open paragraph, so a bare \vspace here
-   would be absorbed instead of pushing the next block down. #>
-\par\vspace{<< "%.2f" | format(below_vspace_pt) >>pt}
+   would be absorbed instead of pushing the next block down. \par alone would
+   also let LaTeX auto-insert \parskip on top of below_vspace_pt, doubling the
+   gap; zero it locally so below_vspace_pt is the only spacing added. #>
+{\parskip=0pt\par}\vspace{<< "%.2f" | format(below_vspace_pt) >>pt}
 <% endif %>
