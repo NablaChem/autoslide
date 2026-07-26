@@ -135,6 +135,9 @@ class Annotations:
     """Geometry of the equation-annotation placement search and its output."""
 
     ink_dpi: int = 300
+    #: Caps the ink raster so an A0 poster page doesn't blow up memory; the
+    #: effective dpi is lowered to fit (poster text is proportionally larger).
+    ink_max_megapixels: float = 12.0
     clearance_pt: float = 3.0
     leader_half_width_pt: float = 2.0
     leader_clearance_pt: float = 2.0
@@ -145,13 +148,17 @@ class Annotations:
     #: Safety valve against pathological inputs in the placement search.
     max_backtrack_visits: int = 500_000
 
-    # Calibration of the space annotations may occupy. These are page
-    # coordinates in pt, as reported by the measurement document.
-    page_width_pt: float = 455.0
-    column_gutter_pt: float = 20.0
+    # How much of the container a label may occupy. The container's own edges
+    # are measured, not assumed - see templates/measure/document.tex.j2.
+    #: Breathing room between a label and the edge of its container.
+    container_padding_pt: float = 5.0
+    #: Slack added to a label's own width before the fit check.
     horizontal_padding_pt: float = 10.0
-    margin_full_pt: float = 20.0
-    margin_column_pt: float = 5.0
+
+    #: Label height these pt values were chosen against. The whole vertical
+    #: grid is scaled by (measured label height / this), so an A0 poster - where
+    #: the same \scriptsize label is 2.5x taller - gets proportional spacing.
+    reference_label_height_pt: float = 6.0
 
     #: Gap between the marked symbol and where the leader line starts.
     stem_above_pt: float = 13.0

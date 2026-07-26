@@ -1,28 +1,61 @@
 <# Throwaway document whose LaTeX log reports the geometry that annotation
-   placement is computed from. It deliberately shares preamble.tex.j2 with the
-   real document: identical \textwidth and column widths are what make the
-   measured node positions valid for the document being generated.
+   placement is computed from.
+
+   It reproduces the *exact* environment the equation will be typeset in -
+   slide or A0 poster, inside a poster block or not, inside a sub-column or
+   not - because every measurement it reports (node positions, container
+   edges, the rasterised ink) is only valid for the geometry it was taken in.
+   The preamble is the same one the real document uses.
 
    Context:
+     mode            "slide" or "poster" - the document geometry to measure in
+     in_block        wrap the equation in a poster block (its body is inset)
+     has_columns     the equation sits in a -|- sub-column
      equation        equation with tikzmarknode wrappers and the baseline node
      equation_body   plain equation, for the \ht/\dp measurement
      labels          list of (savebox_letter, index, label)
      nodes           list of (index, node_name)
      baseline_node   name of the node marking the equation baseline
-     has_columns     measure inside a two-column section
 #>
 <% include "preamble.tex.j2" %>
 \newlength{\tempx}
 \newsavebox{\eqmeasurebox}
+<% if in_block %>
+<# The real title bar sits above the block body, so it can't collide with
+   anything measured inside it - drawing it here would only add stray ink. #>
+\setbeamertemplate{block title}{}
+<% endif %>
 \begin{frame}[t]
 \typeout{PAGESIZE: width=\the\paperwidth, height=\the\paperheight}
-<% if has_columns %>
-% Two columns matching the real rendering context; the equation goes in the
-% right one, where equations usually end up.
+<% if mode == "poster" %>
+<# Both bands, so the columns fill the frame exactly as poster/layout.tex.j2
+   makes them - a lone column would be centred and sit somewhere else. #>
+% Poster column, matching poster/layout.tex.j2
 \begin{columns}[t]
-\column{<< theme.layout.column_width >>\textwidth}
-\column{<< theme.layout.column_width >>\textwidth}
+\begin{column}[t]{<< theme.layout.column_width >>\textwidth}
 <% endif %>
+<% if in_block %>
+% The box body is inset, so \linewidth inside it is what labels must fit in
+\begin{block}{}
+<% endif %>
+<% if has_columns %>
+<# \textwidth is redefined inside a poster block, so this resolves against the
+   box body there and against the frame on a slide - exactly like the real
+   layout template does. Both columns are emitted so the pair fills the width. #>
+% A -|- sub-column, matching slides/layout.tex.j2
+\begin{columns}[t]
+\begin{column}[t]{<< theme.layout.column_width >>\textwidth}
+<% endif %>
+
+<# Zero-width marks at both edges of whatever container we ended up in. Their
+   positions are read in the same absolute page coordinates as the equation's
+   nodes, which is what makes the fit check meaningful. #>
+% Container edges
+\makebox[\linewidth][s]{%
+  \tikzmarknode[inner sep=0pt,outer sep=0pt]{boundleft}{}%
+  \hfill
+  \tikzmarknode[inner sep=0pt,outer sep=0pt]{boundright}{}%
+}
 
 % Render the equation with its baseline node so node positions can be read off
 \begin{align}<< equation >>\end{align}
@@ -31,7 +64,7 @@
 % Measure annotation << index >>: << label >>
 \newsavebox{\measurebox<< letter >>}
 \sbox{\measurebox<< letter >>}{<< theme.fonts.annotation_size >> << label >>}
-\typeout{ANNOTATION<< index >>: width=\the\wd\measurebox<< letter >>, height=\the\ht\measurebox<< letter >>}
+\typeout{ANNOTATION<< index >>: width=\the\wd\measurebox<< letter >>, height=\the\ht\measurebox<< letter >>, depth=\the\dp\measurebox<< letter >>}
 <% endfor %>
 
 <# \ht is height above the math baseline and \dp the depth below - the same
@@ -41,25 +74,49 @@
 \sbox{\eqmeasurebox}{$\displaystyle\begin{aligned}<< equation_body >>\end{aligned}$}
 \typeout{EQMEASURE: height=\the\ht\eqmeasurebox, depth=\the\dp\eqmeasurebox}
 
+<# Everything is reported relative to (current page.north west), i.e. in page
+   coordinates with y growing downwards - the same frame the rasterised ink
+   mask is indexed in. Reading a node's coordinate directly instead would give
+   a position relative to *this tikzpicture*, which moves with the content and
+   would put every ink lookup in the wrong part of the page. #>
 \begin{tikzpicture}[remember picture,overlay]
-% Baseline node (<< baseline_node >>)
-\coordinate (temp) at (<< baseline_node >>.base);
-\path let \p1 = (temp) in \pgfextra{
+% Container edges
+\path let \p1 = ($(boundleft.base) - (current page.north west)$) in \pgfextra{
     \pgfmathsetmacro{\tempx}{\x{1}/1pt}
-    \pgfmathsetmacro{\tempy}{\y{1}/1pt}
+    \typeout{BOUNDLEFT: x=\tempx pt}
+};
+\path let \p1 = ($(boundright.base) - (current page.north west)$) in \pgfextra{
+    \pgfmathsetmacro{\tempx}{\x{1}/1pt}
+    \typeout{BOUNDRIGHT: x=\tempx pt}
+};
+% Baseline node (<< baseline_node >>)
+\path let \p1 = ($(<< baseline_node >>.base) - (current page.north west)$) in \pgfextra{
+    \pgfmathsetmacro{\tempx}{\x{1}/1pt}
+    \pgfmathsetmacro{\tempy}{-\y{1}/1pt}
     \typeout{BASELINEPOS: x=\tempx pt, y=\tempy pt}
 };
 <% for index, node_name in nodes %>
 % Node << index >> (<< node_name >>)
-\coordinate (temp) at (<< node_name >>.base);
-\path let \p1 = (temp) in \pgfextra{
+\path let \p1 = ($(<< node_name >>.base) - (current page.north west)$) in \pgfextra{
     \pgfmathsetmacro{\tempx}{\x{1}/1pt}
-    \pgfmathsetmacro{\tempy}{\y{1}/1pt}
+    \pgfmathsetmacro{\tempy}{-\y{1}/1pt}
     \typeout{NODEPOS<< index >>: x=\tempx pt, y=\tempy pt}
 };
 <% endfor %>
 \end{tikzpicture}
 <% if has_columns %>
+\end{column}
+\begin{column}[t]{<< theme.layout.column_width >>\textwidth}
+\end{column}
+\end{columns}
+<% endif %>
+<% if in_block %>
+\end{block}
+<% endif %>
+<% if mode == "poster" %>
+\end{column}
+\begin{column}[t]{<< theme.layout.column_width >>\textwidth}
+\end{column}
 \end{columns}
 <% endif %>
 \end{frame}

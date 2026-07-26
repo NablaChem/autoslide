@@ -8,6 +8,7 @@ then collide with annotation labels exactly where they visually would, instead
 of only when they exceed a single declared box dimension.
 """
 
+import math
 import os
 import subprocess
 from typing import NamedTuple, Tuple
@@ -80,15 +81,34 @@ def dilate_mask(mask: np.ndarray, radius_px: int) -> np.ndarray:
 
 
 def pt_to_px(x_pt: float, y_pt: float, dpi: float) -> Tuple[int, int]:
-    """Convert a TikZ 'current page' coordinate to (row, col) pixel indices in a
-    rasterized image. Empirically (verified by rendering a known node and checking
-    where it lands), pgf reports 'current page' y in TeX's native top-left,
-    y-down convention here, not the bottom-left/y-up PDF convention - so this is
-    a direct scale, not a flip."""
+    """Convert a page coordinate to (row, col) pixel indices in a rasterized page.
+
+    Coordinates are offsets from the top-left corner of the paper with y growing
+    downwards - which is what the measurement document reports, by subtracting
+    ``(current page.north west)`` from every position it measures. Reading a
+    node's coordinate directly instead would give a position relative to the
+    enclosing tikzpicture and land these lookups on the wrong part of the page.
+    """
     scale = dpi / PT_PER_INCH
     col = int(round(x_pt * scale))
     row = int(round(y_pt * scale))
     return row, col
+
+
+def fit_dpi(page_size_pt: Tuple[float, float], dpi: int, max_megapixels: float) -> int:
+    """Lower ``dpi`` until the rasterised page fits in ``max_megapixels``.
+
+    An A0 poster page is ~35x the area of a 16:9 slide, so rasterising it at
+    slide resolution would cost hundreds of megapixels (and a dilation pass
+    over all of them). Poster type is proportionally larger, so the coarser
+    raster resolves the same features.
+    """
+    width_pt, height_pt = page_size_pt
+    area_sq_in = (width_pt / PT_PER_INCH) * (height_pt / PT_PER_INCH)
+    if area_sq_in <= 0 or max_megapixels <= 0:
+        return int(dpi)
+    # An integer dpi keeps pt_to_px in step with how pdftoppm rounds the raster.
+    return max(24, min(int(dpi), int(math.sqrt(max_megapixels * 1e6 / area_sq_in))))
 
 
 def build_equation_ink(
@@ -96,8 +116,12 @@ def build_equation_ink(
     baseline_y: float,
     dpi: int,
     clearance_pt: float,
+    page_size_pt: Tuple[float, float] = None,
+    max_megapixels: float = 0.0,
 ) -> EquationInk:
     """Rasterize the compiled equation page and return a pre-dilated ink mask."""
+    if page_size_pt:
+        dpi = fit_dpi(page_size_pt, dpi, max_megapixels)
     gray = rasterize_pdf_page(pdf_path, dpi=dpi)
     mask = binary_ink_mask(gray)
     radius_px = int(round(clearance_pt * dpi / PT_PER_INCH))

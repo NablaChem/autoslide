@@ -74,6 +74,8 @@ class SlideRenderer:
     #: Image scaling tier to use outside / inside a two-column section.
     full_width_context = "slide"
     column_context = "column"
+    #: Whether content sits inside a poster block (which insets its body).
+    equations_in_block = False
 
     def __init__(
         self,
@@ -234,14 +236,13 @@ class SlideRenderer:
         latex, self.node_counter = equations.render_annotated_equation(
             item.block,
             self.engine,
-            self.equation_has_columns(has_columns),
+            has_columns,
             self.node_counter,
             self.output_dir,
+            mode=self.mode,
+            in_block=self.equations_in_block,
         )
         return latex
-
-    def equation_has_columns(self, has_columns: bool) -> bool:
-        return has_columns
 
     _BLOCK_RENDERERS = {
         BlockType.TEXT: _render_text,
@@ -264,6 +265,7 @@ class PosterRenderer(SlideRenderer):
     mode = "poster"
     full_width_context = "poster"
     column_context = "poster"
+    equations_in_block = True
 
     def render_document(self, slides: List[List[Block]], title: str = "") -> str:
         cover = next(
@@ -314,7 +316,3 @@ class PosterRenderer(SlideRenderer):
         self.cache.put(key, latex)
         return latex
 
-    def equation_has_columns(self, has_columns: bool) -> bool:
-        # A0 columns are far wider than the beamer calibration the placement
-        # search is tuned against, so always measure at full box width.
-        return False

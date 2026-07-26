@@ -14,8 +14,8 @@ import tempfile
 import os
 import subprocess
 import shutil
-from dataclasses import dataclass
-from typing import List, Dict, Tuple, Optional
+from dataclasses import dataclass, replace as dataclasses_replace
+from typing import List, Dict, NamedTuple, Tuple, Optional
 
 from .models import Block
 from .theme import Theme, default_theme
@@ -44,8 +44,14 @@ def render_annotated_equation(
     has_columns: bool = False,
     node_counter: int = 0,
     output_dir: str = ".",
+    mode: str = "slide",
+    in_block: bool = False,
 ) -> Tuple[str, int]:
-    """Render an equation block, placing any annotations. Returns (latex, counter)."""
+    """Render an equation block, placing any annotations. Returns (latex, counter).
+
+    ``mode``/``in_block``/``has_columns`` describe where the equation will be
+    typeset; annotations are measured in exactly that environment.
+    """
     theme = engine.theme
     equation = block.metadata["equation"]
     annotations = block.metadata["annotations"]
@@ -113,15 +119,16 @@ def render_annotated_equation(
     # Determine optimal placement for annotations
     heading_hint = f" [{heading[:40]}]" if heading else ""
     print(f"Placing annotations for equation{heading_hint}", file=sys.stderr, flush=True)
-    above_placements, below_placements, above_vspace_pt, below_vspace_pt = (
+    above_placements, below_placements, above_vspace_pt, below_vspace_pt, config = (
         determine_annotation_placement(
             annotated_equation, annotation_specs, node_names, has_columns, node_counter,
             output_dir, equation_content=equation_content, theme=theme,
+            mode=mode, in_block=in_block,
         )
     )
 
     draws = build_annotation_draws(
-        annotation_specs, node_names, above_placements, below_placements, theme
+        annotation_specs, node_names, above_placements, below_placements, config=config
     )
     if not draws:
         return _render(annotated_equation, [], 0.0, 0.0), node_counter
@@ -222,6 +229,90 @@ def create_tikzmarknode_equation_new(
     return result, node_names, node_counter
 
 
+class LabelBox(NamedTuple):
+    """A typeset label, measured about its own baseline."""
+
+    width: float
+    height: float  # above the baseline
+    depth: float  # below it
+
+
+def scale_for_label_size(measurements: "Measurements", config):
+    r"""Scale the vertical geometry to the label size actually measured.
+
+    The pt constants were chosen against slide-sized annotation text. The same
+    ``\scriptsize`` label on an A0 poster is ~2.5x taller, and leaving a 15pt
+    first level would draw it straight through the equation. The median label
+    height is used, so one unusually tall label doesn't stretch the whole grid.
+    """
+    heights = [box.height for box in measurements.bounding_boxes.values() if box.height > 0]
+    if not heights or config.reference_label_height_pt <= 0:
+        return config
+    measured = sorted(heights)[len(heights) // 2]
+    factor = measured / config.reference_label_height_pt
+    if 0.95 < factor < 1.05:
+        return config  # slide-sized: leave the tuned values alone
+    factor = max(0.5, min(10.0, factor))
+    return dataclasses_replace(
+        config,
+        clearance_pt=config.clearance_pt * factor,
+        leader_half_width_pt=config.leader_half_width_pt * factor,
+        leader_clearance_pt=config.leader_clearance_pt * factor,
+        first_level_below_pt=config.first_level_below_pt * factor,
+        first_level_above_pt=config.first_level_above_pt * factor,
+        level_step_pt=config.level_step_pt * factor,
+        container_padding_pt=config.container_padding_pt * factor,
+        horizontal_padding_pt=config.horizontal_padding_pt * factor,
+        stem_above_pt=config.stem_above_pt * factor,
+        stem_below_pt=config.stem_below_pt * factor,
+        above_label_offset_pt=config.above_label_offset_pt * factor,
+        label_nudge_pt=config.label_nudge_pt * factor,
+    )
+
+
+def label_geometry(side: str, level: float, config) -> Tuple[float, float]:
+    """Where a label at ``level`` actually ends up.
+
+    Returns (tikz ``above=``/``below=`` distance, signed offset of the label's
+    own baseline from the node's, y growing downwards). The placement search and
+    the drawing code both read this, so what is checked is what is drawn - TikZ
+    anchors the label by its *baseline*, so a "below" label grows back up
+    towards the equation rather than away from it.
+    """
+    if side == "above":
+        distance = level + config.above_label_offset_pt
+        return distance, -(distance + config.label_nudge_pt)
+    distance = level
+    return distance, distance + config.label_nudge_pt
+
+
+@dataclass
+class Measurements:
+    """Everything the measurement pass reports, in absolute page pt.
+
+    All of it comes from one compiled page, so the coordinates are mutually
+    consistent: node positions, container edges and the ink raster can be
+    compared directly without any assumed page or column width.
+    """
+
+    #: annotation index -> the measured box of its typeset label
+    bounding_boxes: Dict[int, LabelBox]
+    #: annotation index -> x of the marked symbol
+    node_positions: Dict[int, float]
+    #: annotation index -> y offset of the marked symbol from the baseline
+    node_shifts: Dict[int, float]
+    #: the equation's own extent above/below its math baseline
+    eq_height: float
+    eq_depth: float
+    #: x of the left/right edge of the container the equation sits in
+    content_left_pt: float
+    content_right_pt: float
+    page_width_pt: float
+    page_height_pt: float
+    baseline_y: float
+    ink: Optional["ink.EquationInk"] = None
+
+
 def determine_annotation_placement(
     equation_with_nodes: str,
     annotation_specs: List[Tuple[str, str]],
@@ -231,30 +322,32 @@ def determine_annotation_placement(
     output_dir: str = ".",
     equation_content: str = "",
     theme: Optional[Theme] = None,
-) -> Tuple[Dict[int, Tuple[float, str]], Dict[int, Tuple[float, str]], float, float]:
-    """Determine optimal placement for annotations using bounding box analysis.
+    mode: str = "slide",
+    in_block: bool = False,
+) -> Tuple[Dict[int, Tuple[float, str]], Dict[int, Tuple[float, str]], float, float, object]:
+    """Place every annotation, measuring in the environment it will end up in.
+
+    ``mode``/``in_block``/``has_columns`` describe that environment: an A0
+    poster box is a very different width from a slide sub-column, and a label
+    that fits one will overflow the other.
 
     Returns:
-        Tuple of (above_placements, below_placements, above_vspace_pt, below_vspace_pt)
+        (above_placements, below_placements, above_vspace_pt, below_vspace_pt,
+        config) - the config is the type-size-scaled one the placements were
+        computed with, and the drawing code must use the same.
     """
-    if not annotation_specs:
-        return {}, {}, 0.0, 0.0
-
     theme = theme or default_theme()
-    config = theme.annotations
-    if has_columns:
-        available_width_pt = (config.page_width_pt - config.column_gutter_pt) / 2.0
-    else:
-        available_width_pt = config.page_width_pt
+    if not annotation_specs:
+        return {}, {}, 0.0, 0.0, theme.annotations
 
-    # Step 1: Measure bounding boxes, node positions, and equation bbox using LaTeX
+    config = theme.annotations
+
+    # Step 1: measure the equation, its labels and its container
     try:
-        bounding_boxes, node_positions, node_shifts, eq_dimensions, eq_ink = (
-            measure_annotation_bounding_boxes(
-                equation_with_nodes, annotation_specs, node_names, node_counter,
-                output_dir, has_columns, equation_content=equation_content,
-                theme=theme,
-            )
+        measurements = measure_annotation_bounding_boxes(
+            equation_with_nodes, annotation_specs, node_names, node_counter,
+            output_dir, has_columns, equation_content=equation_content,
+            theme=theme, mode=mode, in_block=in_block,
         )
     except Exception as e:
         print(f"Error measuring bounding boxes: {e}", file=sys.stderr)
@@ -262,18 +355,11 @@ def determine_annotation_placement(
         print(f"Annotations: {annotation_specs}", file=sys.stderr)
         raise
 
-    # Step 2: Find optimal placement using brute force search
+    # Step 2: scale the vertical grid to the type size we just measured, then
+    # search for a placement that fits inside the measured container
+    config = scale_for_label_size(measurements, config)
     above_placements, below_placements = find_optimal_placement(
-        annotation_specs,
-        bounding_boxes,
-        node_positions,
-        node_names,
-        available_width_pt,
-        config.horizontal_padding_pt,
-        node_shifts,
-        has_columns,
-        eq_ink=eq_ink,
-        theme=theme,
+        annotation_specs, measurements, node_names, config=config
     )
 
     # Step 3: Compute the tight vspace needed beyond the equation's own natural
@@ -284,31 +370,41 @@ def determine_annotation_placement(
     # plain \ht/\dp box measurement, so unaffected by the page-coordinate sign
     # convention); annotations only need extra room for whatever they add
     # beyond that natural extent.
-    eq_height, eq_depth = eq_dimensions
-    baseline_y = eq_ink.baseline_y if eq_ink is not None else 0.0
-    natural_top_y = baseline_y - eq_height
-    natural_bottom_y = baseline_y + eq_depth
+    baseline_y = measurements.baseline_y
+    natural_top_y = baseline_y - measurements.eq_height
+    natural_bottom_y = baseline_y + measurements.eq_depth
 
     # The same minimum gap used everywhere else in this module to keep labels
     # from touching other ink - applying it here too means a label's far edge
     # isn't flush against whatever block follows the equation.
-    top_needed_y = natural_top_y
-    for i, (level, _) in above_placements.items():
-        height_pt = bounding_boxes.get(i, (0.0, 0.0))[1]
-        node_y = baseline_y - node_shifts.get(i, 0.0)
-        far_y = node_y - level - height_pt - config.clearance_pt
-        top_needed_y = min(top_needed_y, far_y)
-    above_vspace_pt = max(0.0, natural_top_y - top_needed_y)
+    def _label_edges(index: int, side: str, level: float) -> Tuple[float, float]:
+        box = measurements.bounding_boxes.get(index)
+        if box is None:
+            return natural_top_y, natural_bottom_y
+        node_y = baseline_y - measurements.node_shifts.get(index, 0.0)
+        _distance, baseline_offset = label_geometry(side, level, config)
+        label_baseline_y = node_y + baseline_offset
+        return (
+            label_baseline_y - box.height - config.clearance_pt,
+            label_baseline_y + box.depth + config.clearance_pt,
+        )
 
-    bottom_needed_y = natural_bottom_y
-    for i, (level, _) in below_placements.items():
-        height_pt = bounding_boxes.get(i, (0.0, 0.0))[1]
-        node_y = baseline_y - node_shifts.get(i, 0.0)
-        far_y = node_y + level + height_pt + config.clearance_pt
-        bottom_needed_y = max(bottom_needed_y, far_y)
-    below_vspace_pt = max(0.0, bottom_needed_y - natural_bottom_y)
+    top_needed_y = min(
+        [natural_top_y]
+        + [_label_edges(i, "above", level)[0] for i, (level, _) in above_placements.items()]
+    )
+    bottom_needed_y = max(
+        [natural_bottom_y]
+        + [_label_edges(i, "below", level)[1] for i, (level, _) in below_placements.items()]
+    )
 
-    return above_placements, below_placements, above_vspace_pt, below_vspace_pt
+    return (
+        above_placements,
+        below_placements,
+        max(0.0, natural_top_y - top_needed_y),
+        max(0.0, bottom_needed_y - natural_bottom_y),
+        config,
+    )
 
 
 def measure_annotation_bounding_boxes(
@@ -320,50 +416,43 @@ def measure_annotation_bounding_boxes(
     has_columns: bool = False,
     equation_content: str = "",
     theme: Optional[Theme] = None,
-) -> Tuple[
-    Dict[int, Tuple[float, float]],
-    Dict[int, float],
-    Dict[int, float],
-    Tuple[float, float],
-    Optional[ink.EquationInk],
-]:
-    """Measure bounding boxes of annotation text and tikzmarknode positions using LaTeX,
-    and rasterize the compiled equation to build an ink-collision mask.
+    mode: str = "slide",
+    in_block: bool = False,
+) -> Measurements:
+    """Compile the measurement document and read its log (and its raster).
 
-    Returns:
-        Tuple of (bounding_boxes, node_positions, node_shifts, eq_dimensions, eq_ink) where:
-        - bounding_boxes: Dict mapping annotation index -> (width_pt, height_pt)
-        - node_positions: Dict mapping annotation index -> x_position_pt
-        - node_shifts: Dict mapping annotation index -> y_shift_from_baseline_pt
-        - eq_dimensions: (height_pt, depth_pt) of the equation box
-        - eq_ink: EquationInk with the dilated ink mask + coordinate metadata, or
-          None if rasterization failed (callers should fall back to eq_dimensions only)
+    The ink mask comes from rasterising the compiled page, so irregular
+    protrusions (big operators, lowered subscripts) collide with labels exactly
+    where they visually would.
     """
     theme = theme or default_theme()
 
-    # Create a temporary directory for LaTeX compilation within the output directory
+    # Compile inside the output directory so relative asset paths still resolve
     temp_dir = tempfile.mkdtemp(dir=output_dir)
 
     try:
-        # Create a temporary LaTeX document to measure all annotations
         measurement_latex, _ = create_measurement_document(
             equation_with_nodes, annotation_specs, node_names, node_counter, has_columns,
             equation_content=equation_content,
             engine=templating.engine(theme),
+            mode=mode,
+            in_block=in_block,
         )
 
-        # Write to temporary file in the temporary directory
         temp_tex_path = os.path.join(temp_dir, "measurement.tex")
         with open(temp_tex_path, "w", encoding="utf-8") as f:
             f.write(measurement_latex)
 
-        # Create empty navigation file to satisfy beamer requirements
+        # Empty navigation file to satisfy beamer
         with open(os.path.join(temp_dir, "measurement.nav"), "w") as f:
             f.write("")
 
-        # Run latexmk with XeLaTeX to compile and measure (handles multiple runs automatically)
         n = len(annotation_specs)
-        print(f"  Measuring annotation layout ({n} annotation{'s' if n != 1 else ''})...", file=sys.stderr, flush=True)
+        where = "poster box" if in_block else ("column" if has_columns else mode)
+        print(
+            f"  Measuring annotation layout ({n} annotation{'s' if n != 1 else ''}, {where})...",
+            file=sys.stderr, flush=True,
+        )
         result = subprocess.run(
             ["latexmk", "-xelatex", "-interaction=nonstopmode", "measurement.tex"],
             capture_output=True,
@@ -377,31 +466,26 @@ def measure_annotation_bounding_boxes(
                 f"LaTeX compilation failed with return code {result.returncode}, see {temp_dir} for details.\n"
             )
 
-        # Parse measurements from log file
-        log_path = os.path.join(temp_dir, "measurement.log")
-
-        bounding_boxes, node_positions, node_shifts, eq_dimensions, page_size_pt, baseline_y = (
-            parse_measurements_from_log(log_path, len(annotation_specs))
+        measurements = parse_measurements_from_log(
+            os.path.join(temp_dir, "measurement.log"), len(annotation_specs)
         )
 
-        eq_ink = None
-        page_width_pt, page_height_pt = page_size_pt
-        if page_height_pt > 0:
+        if measurements.page_height_pt > 0:
             try:
-                pdf_path = os.path.join(temp_dir, "measurement.pdf")
-                eq_ink = ink.build_equation_ink(
-                    pdf_path,
-                    baseline_y,
+                measurements.ink = ink.build_equation_ink(
+                    os.path.join(temp_dir, "measurement.pdf"),
+                    measurements.baseline_y,
                     theme.annotations.ink_dpi,
                     theme.annotations.clearance_pt,
+                    page_size_pt=(measurements.page_width_pt, measurements.page_height_pt),
+                    max_megapixels=theme.annotations.ink_max_megapixels,
                 )
             except Exception as e:
                 print(f"Warning: could not build equation ink mask: {e}", file=sys.stderr)
 
-        return bounding_boxes, node_positions, node_shifts, eq_dimensions, eq_ink
+        return measurements
 
     finally:
-        # Clean up entire temporary directory
         try:
             shutil.rmtree(temp_dir)
         except OSError:
@@ -416,6 +500,8 @@ def create_measurement_document(
     has_columns: bool = False,
     equation_content: str = "",
     engine: Optional[templating.TemplateEngine] = None,
+    mode: str = "slide",
+    in_block: bool = False,
 ) -> Tuple[str, int]:
     """Build the LaTeX document whose log reports annotation geometry.
 
@@ -433,7 +519,8 @@ def create_measurement_document(
 
     document = engine.render(
         "measure/document.tex.j2",
-        mode="measure",
+        mode=mode,
+        in_block=in_block,
         tracing=False,
         pygments_styles="",
         equation="\n".join(equation_lines),
@@ -450,103 +537,70 @@ def create_measurement_document(
     return document, node_counter
 
 
-def parse_measurements_from_log(
-    log_path: str, num_annotations: int
-) -> Tuple[
-    Dict[int, Tuple[float, float]],
-    Dict[int, float],
-    Dict[int, float],
-    Tuple[float, float],
-    Tuple[float, float],
-    float,
-]:
-    """Parse bounding box measurements and node positions from LaTeX log file.
+def parse_measurements_from_log(log_path: str, num_annotations: int) -> Measurements:
+    """Read every \typeout the measurement document emitted.
 
-    Returns:
-        Tuple of (bounding_boxes, node_positions, node_shifts, eq_dimensions, page_size_pt, baseline_y) where:
-        - bounding_boxes: Dict mapping annotation index -> (width_pt, height_pt)
-        - node_positions: Dict mapping annotation index -> x_position_pt
-        - node_shifts: Dict mapping annotation index -> y_shift_from_baseline_pt
-        - eq_dimensions: (height_pt, depth_pt) of the equation box
-        - page_size_pt: (paperwidth_pt, paperheight_pt) of the beamer frame
-        - baseline_y: absolute y-position (in the tikz "current page" coordinate
-          system) of the equation's baseline node
+    Missing values fall back to something harmless and warn: a failed
+    measurement should degrade placement, not abort the build.
     """
-    bounding_boxes = {}
-    node_positions = {}
-    node_shifts = {}
-
     with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
         log_content = f.read()
 
-    # Parse baseline position first
-    baseline_y = None
-    baseline_pattern = "BASELINEPOS: x=([0-9.-]+)pt, y=([0-9.-]+)pt"
-    baseline_match = re.search(baseline_pattern, log_content)
-    if baseline_match:
-        baseline_y = float(baseline_match.group(2))
-    else:
-        print("Warning: Could not find baseline position", file=sys.stderr)
-        baseline_y = 0.0  # Fallback to 0 if baseline not found
-
-    # Parse bounding box measurements from typeout commands
-    for i in range(1, num_annotations + 1):
-        pattern = f"ANNOTATION{i}: width=([0-9.]+)pt, height=([0-9.]+)pt"
+    def _find(pattern: str, label: str, default):
         match = re.search(pattern, log_content)
         if match:
-            width_pt = float(match.group(1))
-            height_pt = float(match.group(2))
-            # Keep values in pt - no conversion needed
-            bounding_boxes[i] = (width_pt, height_pt)
-        else:
-            # Fallback if measurement not found
-            print(
-                f"Warning: Could not find measurement for annotation {i}",
-                file=sys.stderr,
-            )
-            bounding_boxes[i] = (50.0, 12.0)  # Default reasonable size in pt
+            return tuple(float(group) for group in match.groups())
+        print(f"Warning: Could not find {label} measurement", file=sys.stderr)
+        return default
 
-    # Parse node position measurements and calculate shifts from baseline
-    for i in range(1, num_annotations + 1):
-        # Look for the format: NODEPOS1: x=123.456pt, y=789.012pt (no space before pt)
-        pattern = f"NODEPOS{i}: x=([0-9.-]+)pt, y=([0-9.-]+)pt"
-        match = re.search(pattern, log_content)
-        if match:
-            x_pt = float(match.group(1))
-            y_pt = float(match.group(2))
-            # Keep x position in pt - no conversion needed
-            node_positions[i] = x_pt
-            # Calculate shift from baseline (positive means above baseline)
-            node_shifts[i] = y_pt - baseline_y
-
-    # Parse equation bounding box measurement
-    eq_height = 0.0
-    eq_depth = 0.0
-    eq_match = re.search(r"EQMEASURE: height=([0-9.]+)pt, depth=([0-9.]+)pt", log_content)
-    if eq_match:
-        eq_height = float(eq_match.group(1))
-        eq_depth = float(eq_match.group(2))
-    else:
-        print("Warning: Could not find equation bbox measurement (EQMEASURE)", file=sys.stderr)
-
-    page_width_pt = 0.0
-    page_height_pt = 0.0
-    page_match = re.search(
-        r"PAGESIZE: width=([0-9.]+)pt, height=([0-9.]+)pt", log_content
+    (baseline_x, baseline_y) = _find(
+        r"BASELINEPOS: x=([0-9.-]+)pt, y=([0-9.-]+)pt", "baseline position", (0.0, 0.0)
     )
-    if page_match:
-        page_width_pt = float(page_match.group(1))
-        page_height_pt = float(page_match.group(2))
-    else:
-        print("Warning: Could not find page size measurement (PAGESIZE)", file=sys.stderr)
+    (page_width_pt, page_height_pt) = _find(
+        r"PAGESIZE: width=([0-9.]+)pt, height=([0-9.]+)pt", "page size", (0.0, 0.0)
+    )
+    (eq_height,) = _find(
+        r"EQMEASURE: height=([0-9.]+)pt", "equation height (EQMEASURE)", (0.0,)
+    )
+    (eq_depth,) = _find(
+        r"EQMEASURE: height=[0-9.]+pt, depth=([0-9.]+)pt", "equation depth (EQMEASURE)", (0.0,)
+    )
+    (content_left_pt,) = _find(
+        r"BOUNDLEFT: x=([0-9.-]+)pt", "container left edge", (0.0,)
+    )
+    (content_right_pt,) = _find(
+        r"BOUNDRIGHT: x=([0-9.-]+)pt", "container right edge", (page_width_pt,)
+    )
 
-    return (
-        bounding_boxes,
-        node_positions,
-        node_shifts,
-        (eq_height, eq_depth),
-        (page_width_pt, page_height_pt),
-        baseline_y,
+    bounding_boxes = {}
+    node_positions = {}
+    node_shifts = {}
+    for i in range(1, num_annotations + 1):
+        bounding_boxes[i] = LabelBox(*_find(
+            f"ANNOTATION{i}: width=([0-9.]+)pt, height=([0-9.]+)pt, depth=([0-9.]+)pt",
+            f"annotation {i}",
+            (50.0, 12.0, 3.0),  # a plausible label size, so placement can continue
+        ))
+
+        match = re.search(f"NODEPOS{i}: x=([0-9.-]+)pt, y=([0-9.-]+)pt", log_content)
+        if match:
+            node_positions[i] = float(match.group(1))
+            # Page y grows downwards, so subtract the other way round to keep
+            # the convention the placement search reads: positive means the
+            # marked symbol sits *above* the baseline (a superscript).
+            node_shifts[i] = baseline_y - float(match.group(2))
+
+    return Measurements(
+        bounding_boxes=bounding_boxes,
+        node_positions=node_positions,
+        node_shifts=node_shifts,
+        eq_height=eq_height,
+        eq_depth=eq_depth,
+        content_left_pt=content_left_pt,
+        content_right_pt=content_right_pt,
+        page_width_pt=page_width_pt,
+        page_height_pt=page_height_pt,
+        baseline_y=baseline_y,
     )
 
 
@@ -555,22 +609,20 @@ def _annotation_option_obstacles(
     position: str,
     level: float,
     anchor: str,
-    bounding_boxes: Dict[int, Tuple[float, float]],
-    node_positions: Dict[int, float],
-    node_shifts: Dict[int, float],
-    baseline_y: float,
-    page_width_pt: float,
-    horizontal_padding_pt: float,
-    has_columns: bool,
-    eq_ink,
+    measurements: "Measurements",
     config=None,
 ):
     """Build (label_rect, leader_rect) for one candidate (position, level, anchor)
-    placement of annotation i, checked in isolation (forced side, page margin,
+    placement of annotation i, checked in isolation (forced side, container edge,
     equation ink). Returns None if this option is invalid regardless of what else
     is placed. Returns (None, None) if there's nothing to check (no measured
     geometry for this annotation) - such an option never conflicts with anything."""
     config = config or default_theme().annotations
+    bounding_boxes = measurements.bounding_boxes
+    node_positions = measurements.node_positions
+    node_shifts = measurements.node_shifts
+    baseline_y = measurements.baseline_y
+
     if node_shifts[i] < 0 and position == "above":
         return None
     if node_shifts[i] > 0 and position == "below":
@@ -578,54 +630,52 @@ def _annotation_option_obstacles(
     if i not in bounding_boxes or i not in node_positions:
         return (None, None)
 
-    left_margin = config.margin_column_pt if has_columns else config.margin_full_pt
-    right_margin = left_margin
+    # The container's real edges, measured in the same coordinate system as the
+    # nodes - so this check means the same thing on a slide, in a -|- column and
+    # in an A0 poster box.
+    left_limit = measurements.content_left_pt + config.container_padding_pt
+    right_limit = measurements.content_right_pt - config.container_padding_pt
 
-    width_pt, height_pt = bounding_boxes[i]
+    box = bounding_boxes[i]
     node_x = node_positions[i]
-    padded_width = width_pt + horizontal_padding_pt
+    padded_width = box.width + config.horizontal_padding_pt
 
     # Only the label's growing edge (away from the node) is a placement choice
-    # and gets margin-checked; the anchor-side edge is just the symbol's own
-    # fixed position, which annotation placement has no control over.
+    # and gets checked; the anchor-side edge is just the symbol's own fixed
+    # position, which annotation placement has no control over.
     if anchor == "base west":  # Left-aligned text extends right from node
         left_bound = node_x
         right_bound = node_x + padded_width
-        if right_bound > page_width_pt - right_margin:
+        if right_bound > right_limit:
             return None
     else:  # "base east" - Right-aligned text extends left from node
         left_bound = node_x - padded_width
         right_bound = node_x
-        if left_bound < left_margin:
+        if left_bound < left_limit:
             return None
 
-    # node_shifts is y_pt - baseline_y in the raw "current page" coordinate
-    # system, which (verified empirically by rendering a known superscript/
-    # subscript pair and checking where they land on the rasterized page)
-    # increases *downward* - the opposite of the "positive means above"
-    # convention its own docstring assumes. Negate it here so "above"/"below"
-    # below correctly mean smaller/larger raw y (and therefore smaller/larger
-    # pixel row, matching ink.pt_to_px's direct y*scale).
+    # Everything here is in page coordinates with y growing downwards (the same
+    # frame ink.pt_to_px indexes the raster in), so "above" is a smaller y.
     node_y = baseline_y - node_shifts[i]
-    if position == "above":
-        near_y, far_y = node_y - level, node_y - level - height_pt
-    else:
-        near_y, far_y = node_y + level, node_y + level + height_pt
-    bottom, top = (near_y, far_y) if near_y <= far_y else (far_y, near_y)
+    _distance, baseline_offset = label_geometry(position, level, config)
+    label_baseline_y = node_y + baseline_offset
+    top = label_baseline_y - box.height
+    bottom = label_baseline_y + box.depth
 
-    label_rect = (left_bound, right_bound, bottom, top)
+    label_rect = (left_bound, right_bound, top, bottom)
 
-    if eq_ink is not None and ink.equation_ink_overlaps_rect(
-        eq_ink, left_bound, right_bound, bottom, top
+    if measurements.ink is not None and ink.equation_ink_overlaps_rect(
+        measurements.ink, left_bound, right_bound, bottom, top
     ):
         return None
 
-    leader_bottom, leader_top = (node_y, near_y) if node_y <= near_y else (near_y, node_y)
+    # The leader line runs from the symbol to the near edge of the label.
+    near_y = top if position == "above" else bottom
     leader_rect = (
         node_x - config.leader_half_width_pt,
         node_x + config.leader_half_width_pt,
-        leader_bottom,
-        leader_top,
+        min(node_y, near_y),
+        max(node_y, near_y),
     )
 
     return (label_rect, leader_rect)
@@ -650,15 +700,10 @@ def _obstacles_conflict(rect_a, is_leader_a, rect_b, is_leader_b, config=None) -
 
 def find_optimal_placement(
     annotation_specs: List[Tuple[str, str]],
-    bounding_boxes: Dict[int, Tuple[float, float]],
-    node_positions: Dict[int, float],
+    measurements: "Measurements",
     node_names: Dict[int, str],
-    page_width_pt: float,
-    horizontal_padding_pt: float,
-    node_shifts: Dict[int, float],
-    has_columns: bool = False,
-    eq_ink=None,
     theme: Optional[Theme] = None,
+    config=None,
 ) -> Tuple[Dict[int, Tuple[float, str]], Dict[int, Tuple[float, str]]]:
     """Find optimal placement using a pruned backtracking search over a fixed,
     regularly-spaced grid of levels.
@@ -669,9 +714,8 @@ def find_optimal_placement(
     materializing the full cartesian product of placement choices - which, with
     8+ annotations and a handful of levels, is far too large to enumerate.
     """
-    config = (theme or default_theme()).annotations
+    config = config or (theme or default_theme()).annotations
     num_annotations = len(annotation_specs)
-    baseline_y = eq_ink.baseline_y if eq_ink is not None else 0.0
     indices = list(range(1, num_annotations + 1))
 
     step = config.level_step_pt
@@ -687,10 +731,7 @@ def find_optimal_placement(
                 for level in levels:
                     for anchor in ("base west", "base east"):
                         obs = _annotation_option_obstacles(
-                            i, position, level, anchor,
-                            bounding_boxes, node_positions, node_shifts, baseline_y,
-                            page_width_pt, horizontal_padding_pt, has_columns, eq_ink,
-                            config,
+                            i, position, level, anchor, measurements, config
                         )
                         if obs is not None:
                             opts.append((position, level, anchor, obs))
@@ -788,15 +829,18 @@ def build_annotation_draws(
     above_placements: Dict[int, Tuple[float, str]],
     below_placements: Dict[int, Tuple[float, str]],
     theme: Optional[Theme] = None,
+    config=None,
 ) -> List[AnnotationDraw]:
     """Turn chosen placements into the concrete lengths the template draws with.
 
     Above and below labels are mirror images of each other: the leader line, the
     highlight tint and the label offset all flip sign, which is why this is one
     function over a signed axis rather than two near-identical blocks.
+
+    ``config`` must be the same (type-size-scaled) one the placement search used
+    - the distances here are what makes the drawing match what was checked.
     """
-    theme = theme or default_theme()
-    config = theme.annotations
+    config = config or (theme or default_theme()).annotations
     draws = []
 
     for index, (_exact, label) in enumerate(annotation_specs, 1):
@@ -807,7 +851,7 @@ def build_annotation_draws(
             side, (level, anchor) = "above", above_placements[index]
             stem_pt = config.stem_above_pt
             leader_pt = level
-            label_offset_pt = level + config.above_label_offset_pt
+            label_offset_pt, _offset = label_geometry(side, level, config)
             xshift = config.label_xshift_above
             yshift = f"{_number(config.label_nudge_pt)}pt"
             corner = "north"
@@ -815,7 +859,7 @@ def build_annotation_draws(
             side, (level, anchor) = "below", below_placements[index]
             stem_pt = -config.stem_below_pt
             leader_pt = -level
-            label_offset_pt = level
+            label_offset_pt, _offset = label_geometry(side, level, config)
             xshift = config.label_xshift_below
             yshift = f"-{_number(config.label_nudge_pt)}pt"
             corner = "south"
